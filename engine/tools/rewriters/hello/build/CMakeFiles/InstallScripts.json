@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/zach/github/OrcaSlicer/engine/tools/rewriters/hello/build/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

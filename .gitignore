@@ -49,3 +49,6 @@ internal_docs/
 
 # Local working docs (personal fork execution plan)
 FULL_TODO_PLAN.md
+
+# Engine rewriter scratch build dirs
+engine/tools/rewriters/**/build/
