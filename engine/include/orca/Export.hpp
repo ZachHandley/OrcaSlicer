@@ -8,6 +8,8 @@
 
 namespace orca {
 
+class Session;
+
 using ExportHandle = std::uint64_t;
 
 struct ExportParams {
@@ -34,6 +36,9 @@ public:
 private:
     friend class Session;
     Exporter();
+
+    // Set by Session::create() so export_gcode() can reach slicer().
+    void bind_session(Session* session);
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

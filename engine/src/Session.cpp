@@ -40,7 +40,10 @@ std::unique_ptr<Session> Session::create() {
     return std::unique_ptr<Session>(new Session());
 }
 
-Session::Session() : impl_(std::make_unique<Impl>()) {}
+Session::Session() : impl_(std::make_unique<Impl>()) {
+    impl_->slicer.bind_session(this);
+    impl_->exporter.bind_session(this);
+}
 Session::~Session() = default;
 
 Presets&       Session::presets()       { return impl_->presets; }

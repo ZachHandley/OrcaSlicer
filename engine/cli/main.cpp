@@ -16,6 +16,12 @@
 // Phase 0.4d — verify the typed surface compiles + runs from a non-GUI consumer.
 #include <orca/Config.hpp>
 #include <orca/ConfigKeys.hpp>
+#include <orca/Session.hpp>
+#include <orca/Slicer.hpp>
+#include <orca/Export.hpp>
+
+#include <chrono>
+#include <thread>
 
 #include <cstddef>
 #include <cstdio>
@@ -125,5 +131,63 @@ int main() {
 
     std::printf("orca-engine-cli: engine OK — sliced 20mm cube into %zu layers, exported %ju bytes of G-code\n",
                 layers, static_cast<std::uintmax_t>(written_size));
+
+    // 6) Engine service path (Phase 0.4c) — drive the SAME slice through the
+    //    orca::Slicer/Exporter services via the explicit-input overload (no
+    //    PresetBundle attached). Proves the async service API works headless.
+    {
+        auto session = orca::Session::create();
+
+        orca::SliceParams sp;            // FFF, plate 0 (defaults)
+        auto h = session->slicer().request_slice(sp, model, config);
+        if (!h) {
+            std::printf("orca-engine-cli: service request_slice failed: %s\n",
+                        h.error().message.c_str());
+            return 1;
+        }
+        const orca::SliceHandle handle = h.value();
+
+        using clock = std::chrono::steady_clock;
+        const auto deadline = clock::now() + std::chrono::seconds(120);
+        orca::SliceStatus st;
+        for (;;) {
+            st = session->slicer().status(handle);
+            if (st.state == orca::SliceState::Completed ||
+                st.state == orca::SliceState::Failed ||
+                st.state == orca::SliceState::Cancelled)
+                break;
+            if (clock::now() > deadline) {
+                std::printf("orca-engine-cli: service slice timed out\n");
+                return 1;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        if (st.state != orca::SliceState::Completed) {
+            std::printf("orca-engine-cli: service slice not completed (state=%d, err=%s)\n",
+                        static_cast<int>(st.state), st.error.c_str());
+            return 1;
+        }
+
+        const std::filesystem::path svc_out =
+            std::filesystem::temp_directory_path() / "orca_engine_service.gcode";
+        std::error_code rm2;
+        std::filesystem::remove(svc_out, rm2);
+
+        auto ex = session->exporter().export_gcode({svc_out});
+        if (!ex) {
+            std::printf("orca-engine-cli: service export_gcode failed: %s\n",
+                        ex.error().message.c_str());
+            return 1;
+        }
+        std::error_code sz2;
+        const auto svc_size = std::filesystem::file_size(svc_out, sz2);
+        if (sz2 || svc_size < 1024) {
+            std::printf("orca-engine-cli: service export too small/missing\n");
+            return 1;
+        }
+        std::printf("orca-engine-cli: service OK — sliced+exported via Slicer/Exporter (%ju bytes)\n",
+                    static_cast<std::uintmax_t>(svc_size));
+    }
+
     return 0;
 }
