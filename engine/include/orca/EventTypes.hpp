@@ -5,6 +5,7 @@
 #include "Project.hpp"
 #include "Slicer.hpp"
 
+#include <cstddef>
 #include <filesystem>
 #include <string>
 
@@ -50,6 +51,48 @@ struct ObjectAdded {
 
 struct ObjectRemoved {
     ObjectId id;
+};
+
+struct BeforeSlice {
+    SliceHandle handle;
+};
+
+struct AfterPerimeters {
+    SliceHandle handle;
+    std::size_t object_count;
+};
+
+struct AfterInfill {
+    SliceHandle handle;
+    std::size_t object_count;
+};
+
+struct AfterIroning {
+    SliceHandle handle;
+};
+
+struct AfterSupports {
+    SliceHandle handle;
+};
+
+struct BeforeWipeTower {
+    SliceHandle handle;
+    bool        has_wipe_tower;
+};
+
+struct AfterSkirtBrim {
+    SliceHandle handle;
+};
+
+struct BeforeGCodeExport {
+    SliceHandle           handle;
+    std::filesystem::path output_path;
+};
+
+struct AfterGCodeExport {
+    SliceHandle           handle;
+    std::filesystem::path output_path;
+    std::size_t           line_count;
 };
 
 } // namespace orca

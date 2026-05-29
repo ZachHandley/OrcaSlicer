@@ -7,12 +7,20 @@
 #include <string>
 #include <functional>
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 
 #include "ObjectID.hpp"
 #include "Model.hpp"
 #include "PlaceholderParser.hpp"
 #include "PrintConfig.hpp"
+
+// Phase 1.4 — forward-declare the engine event bus type so PrintBase can
+// hold a pointer without pulling the full Events header into every
+// libslic3r consumer's translation unit. The full type lives at
+// engine/include/orca/Events.hpp (engine/include is on libslic3r's PUBLIC
+// include path, so consumers that actually publish events include it).
+namespace orca { class Events; }
 
 namespace Slic3r {
 
@@ -477,6 +485,16 @@ public:
     void                    set_status_silent() { m_status_callback = [](const SlicingStatus&){}; }
     // Register a custom status callback.
     void                    set_status_callback(status_callback_type cb) { m_status_callback = cb; }
+    // Phase 1.4 — the engine Slicer binds the bus + the slice handle so the
+    // pipeline-stage publishes inside Print::process can reach the orca bus.
+    // sink == nullptr disables publishing (default state — libslic3r-only
+    // consumers see no behavior change). handle is the engine's SliceHandle
+    // value (uint64_t) for the current slice; consumers without a handle
+    // pass 0.
+    void                    set_events_sink(orca::Events* sink, std::uint64_t handle) {
+        m_events_sink = sink;
+        m_events_slice_handle = handle;
+    }
     // Calls a registered callback to update the status, or print out the default message.
     void                    set_status(int percent, const std::string &message, unsigned int flags = SlicingStatus::DEFAULT, int warning_step = -1) const;
 
@@ -563,6 +581,11 @@ protected:
 
     // Callback to be evoked regularly to update state of the UI thread.
     status_callback_type                    m_status_callback;
+
+    // Phase 1.4 — bus sink for pipeline-stage publishes (Print.cpp). Default
+    // null: no behavior change for libslic3r-only consumers.
+    orca::Events*                           m_events_sink = nullptr;
+    std::uint64_t                           m_events_slice_handle = 0;
 
 private:
     std::atomic<CancelStatus>               m_cancel_status;

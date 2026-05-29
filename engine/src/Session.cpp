@@ -46,6 +46,8 @@ std::unique_ptr<Session> Session::create() {
 }
 
 Session::Session() : impl_(std::make_unique<Impl>()) {
+    impl_->presets.bind_session(this);
+    impl_->project.bind_session(this);
     impl_->slicer.bind_session(this);
     impl_->exporter.bind_session(this);
     impl_->manager.bind_session(this, &impl_->registry);

@@ -23,6 +23,8 @@ class DynamicPrintConfig;
 
 namespace orca {
 
+class Session;
+
 enum class PresetType {
     Print,
     Printer,
@@ -219,6 +221,11 @@ public:
 private:
     friend class Session;
     Presets();
+
+    // Wire the back-pointer to the owning Session so this service can reach
+    // the event bus (session->events()). Mirrors Slicer::bind_session /
+    // Exporter::bind_session — called once by Session::Session().
+    void bind_session(Session* session);
 
     // Borrow the GUI/CLI-owned PresetBundle for the lifetime of this Session.
     // Called by Session::attach_preset_bundle().

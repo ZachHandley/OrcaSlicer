@@ -5,24 +5,63 @@
 
 #include "orca/Project.hpp"
 
+#include "orca/Events.hpp"
+#include "orca/EventTypes.hpp"
+#include "orca/Session.hpp"
+
 #include "libslic3r/Model.hpp"
 
 #include <cassert>
+#include <cstdint>
+#include <filesystem>
 
 namespace orca {
 
 struct Project::Impl {
-    Slic3r::Model* model = nullptr;  // borrowed; not owned
+    Slic3r::Model* model   = nullptr;  // borrowed; not owned
+    Session*       session = nullptr;  // back-pointer for event publishing
 };
 
 Project::Project() : impl_(std::make_unique<Impl>()) {}
 Project::~Project() = default;
 
+void Project::bind_session(Session* session) {
+    impl_->session = session;
+}
+
 void Project::attach_model(Slic3r::Model* model) {
+    Slic3r::Model* old_model = impl_->model;
+
+    // Mirror "everything previously here is now gone" before the borrow flips.
+    if (old_model != nullptr && impl_->session != nullptr) {
+        for (std::size_t i = 0; i < old_model->objects.size(); ++i) {
+            impl_->session->events().publish<ObjectRemoved>(
+                ObjectRemoved{static_cast<ObjectId>(i)});
+        }
+    }
+
     impl_->model = model;
+
+    if (model != nullptr && impl_->session != nullptr) {
+        // Phase 1: borrow path has no LoadHandle and no source path. Phase 2
+        // load_files() will publish ProjectLoaded with the real handle+path.
+        impl_->session->events().publish<ProjectLoaded>(
+            ProjectLoaded{LoadHandle{0}, std::filesystem::path{}});
+        for (std::size_t i = 0; i < model->objects.size(); ++i) {
+            impl_->session->events().publish<ObjectAdded>(
+                ObjectAdded{static_cast<ObjectId>(i)});
+        }
+    }
 }
 
 void Project::detach_model() {
+    Slic3r::Model* old_model = impl_->model;
+    if (old_model != nullptr && impl_->session != nullptr) {
+        for (std::size_t i = 0; i < old_model->objects.size(); ++i) {
+            impl_->session->events().publish<ObjectRemoved>(
+                ObjectRemoved{static_cast<ObjectId>(i)});
+        }
+    }
     impl_->model = nullptr;
 }
 

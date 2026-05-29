@@ -13,6 +13,9 @@
 // either stubs returning defaults or will be added on demand.
 
 #include "orca/Presets.hpp"
+#include "orca/Events.hpp"
+#include "orca/EventTypes.hpp"
+#include "orca/Session.hpp"
 
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -20,11 +23,13 @@
 
 #include <cassert>
 #include <memory>
+#include <string>
 
 namespace orca {
 
 struct Presets::Impl {
-    Slic3r::PresetBundle* bundle = nullptr;  // borrowed; not owned
+    Slic3r::PresetBundle* bundle  = nullptr;  // borrowed; not owned
+    Session*              session = nullptr;  // borrowed back-pointer for events()
 
     // Owned snapshot for ConfigScope::Full reads. full_config() returns a
     // value type; we stash it here so config_for_scope(Full) can hand out a
@@ -36,8 +41,25 @@ struct Presets::Impl {
 Presets::Presets() : impl_(std::make_unique<Impl>()) {}
 Presets::~Presets() = default;
 
+void Presets::bind_session(Session* session) {
+    impl_->session = session;
+}
+
 void Presets::attach_bundle(Slic3r::PresetBundle* bundle) {
     impl_->bundle = bundle;
+
+    // Publish a PresetChanged for each preset type whose "current" name just
+    // became valid. attach_bundle is the moment the engine's preset state
+    // transitions from "none" to "loaded" — downstream consumers (plugins,
+    // GUI sync, tests) treat this as the canonical initial publish. Skip on
+    // detach (bundle == nullptr): the "what's current" contract has no
+    // meaningful answer when nothing is attached.
+    if (bundle != nullptr && impl_->session != nullptr) {
+        Events& bus = impl_->session->events();
+        bus.publish(PresetChanged{PresetType::Print,    bundle->prints.get_selected_preset_name()});
+        bus.publish(PresetChanged{PresetType::Printer,  bundle->printers.get_selected_preset_name()});
+        bus.publish(PresetChanged{PresetType::Filament, bundle->filaments.get_selected_preset_name()});
+    }
 }
 
 void Presets::detach_bundle() {
@@ -163,11 +185,23 @@ std::vector<PresetRef> Presets::physical_printer_list() const {
 
 // ---------- Write surface (stubs — Transform B fills these in) ----------
 
-Result<void> Presets::set_current(PresetType /*type*/, std::string_view /*name*/) {
+Result<void> Presets::set_current(PresetType type, std::string_view name) {
+    // Phase 1.3.1: publish the intent on the bus so subscribers can observe
+    // the *attempt* (this lets tests verify the bus wiring before Phase 2
+    // fills in the real selection logic). Guarded on session + bundle so the
+    // bootstrap state (no Session, no PresetBundle attached) stays silent.
+    if (impl_->session != nullptr && impl_->bundle != nullptr) {
+        impl_->session->events().publish(PresetChanged{type, std::string(name)});
+    }
     return err<void>(ErrorCode::NotImplemented, "Presets::set_current not yet implemented");
 }
 
-Result<void> Presets::set_filament(int /*extruder_idx*/, std::string_view /*name*/) {
+Result<void> Presets::set_filament(int /*extruder_idx*/, std::string_view name) {
+    // Phase 1.3.1: publish the intent on the bus (Filament-typed) before the
+    // NotImplemented return — same rationale as set_current.
+    if (impl_->session != nullptr && impl_->bundle != nullptr) {
+        impl_->session->events().publish(PresetChanged{PresetType::Filament, std::string(name)});
+    }
     return err<void>(ErrorCode::NotImplemented, "Presets::set_filament not yet implemented");
 }
 

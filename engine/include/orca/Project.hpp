@@ -23,6 +23,8 @@ class Model;
 
 namespace orca {
 
+class Session;
+
 using ObjectId   = std::uint64_t;
 using InstanceId = std::uint64_t;
 using VolumeId   = std::uint64_t;
@@ -192,6 +194,7 @@ private:
     friend class Session;
     Project();
 
+    void bind_session(Session* session);
     void attach_model(Slic3r::Model* model);
     void detach_model();
 

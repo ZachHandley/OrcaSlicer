@@ -199,7 +199,16 @@ typedef enum {
     ORCA_EVT_PRESET_CHANGED   = 5,
     ORCA_EVT_PROJECT_LOADED   = 6,
     ORCA_EVT_OBJECT_ADDED     = 7,
-    ORCA_EVT_OBJECT_REMOVED   = 8
+    ORCA_EVT_OBJECT_REMOVED   = 8,
+    ORCA_EVT_BEFORE_SLICE        = 9,
+    ORCA_EVT_AFTER_PERIMETERS    = 10,
+    ORCA_EVT_AFTER_INFILL        = 11,
+    ORCA_EVT_AFTER_IRONING       = 12,
+    ORCA_EVT_AFTER_SUPPORTS      = 13,
+    ORCA_EVT_BEFORE_WIPE_TOWER   = 14,
+    ORCA_EVT_AFTER_SKIRT_BRIM    = 15,
+    ORCA_EVT_BEFORE_GCODE_EXPORT = 16,
+    ORCA_EVT_AFTER_GCODE_EXPORT  = 17
 } orca_event_kind_t;
 
 typedef void (*orca_event_callback_t)(orca_event_kind_t kind, const void* payload, void* user_data);
@@ -245,6 +254,48 @@ typedef struct {
 
 typedef struct { orca_object_id_t id; } orca_evt_object_added_t;
 typedef struct { orca_object_id_t id; } orca_evt_object_removed_t;
+
+typedef struct {
+    orca_slice_handle_t handle;
+} orca_evt_before_slice_t;
+
+typedef struct {
+    orca_slice_handle_t handle;
+    size_t              object_count;
+} orca_evt_after_perimeters_t;
+
+typedef struct {
+    orca_slice_handle_t handle;
+    size_t              object_count;
+} orca_evt_after_infill_t;
+
+typedef struct {
+    orca_slice_handle_t handle;
+} orca_evt_after_ironing_t;
+
+typedef struct {
+    orca_slice_handle_t handle;
+} orca_evt_after_supports_t;
+
+typedef struct {
+    orca_slice_handle_t handle;
+    bool                has_wipe_tower;
+} orca_evt_before_wipe_tower_t;
+
+typedef struct {
+    orca_slice_handle_t handle;
+} orca_evt_after_skirt_brim_t;
+
+typedef struct {
+    orca_slice_handle_t handle;
+    const char*         output_path;
+} orca_evt_before_gcode_export_t;
+
+typedef struct {
+    orca_slice_handle_t handle;
+    const char*         output_path;
+    size_t              line_count;
+} orca_evt_after_gcode_export_t;
 
 #ifdef __cplusplus
 }

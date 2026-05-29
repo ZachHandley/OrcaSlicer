@@ -156,6 +156,13 @@ void Slicer::run_slice(Slic3r::Model work_model) {
             impl_->session->events().publish<SlicingProgress>({handle, progress, message});
     });
 
+    // Wire the typed event sink into the Print so libslic3r-side publishes
+    // (Phase 1.4.2 inserts inside Print::process / Print::export_gcode) fan
+    // out onto this session's bus tagged with the current slice handle.
+    if (impl_->session != nullptr) {
+        print->set_events_sink(&impl_->session->events(), impl_->current_handle);
+    }
+
     try {
         for (Slic3r::ModelObject* mo : work_model.objects)
             print->auto_assign_extruders(mo);

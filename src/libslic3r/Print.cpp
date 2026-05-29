@@ -39,6 +39,9 @@
 #include "GCode/ConflictChecker.hpp"
 #include "ParameterUtils.hpp"
 
+#include "orca/Events.hpp"
+#include "orca/EventTypes.hpp"
+
 #include <codecvt>
 
 using namespace nlohmann;
@@ -2134,6 +2137,9 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
     if (m_objects.empty())
         return;
 
+    if (m_events_sink)
+        m_events_sink->publish(orca::BeforeSlice{m_events_slice_handle});
+
     for (PrintObject *obj : m_objects)
         obj->clear_shared_object();
 
@@ -2247,6 +2253,8 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
                     obj->set_done(posPerimeters);
             }
         }
+        if (m_events_sink)
+            m_events_sink->publish(orca::AfterPerimeters{m_events_slice_handle, this->objects().size()});
         for (PrintObject *obj : m_objects) {
             if (need_slicing_objects.count(obj) != 0) {
                 obj->estimate_curled_extrusions();
@@ -2267,6 +2275,8 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
                     obj->set_done(posInfill);
             }
         }
+        if (m_events_sink)
+            m_events_sink->publish(orca::AfterInfill{m_events_slice_handle, this->objects().size()});
         for (PrintObject *obj : m_objects) {
             if (need_slicing_objects.count(obj) != 0) {
                 obj->ironing();
@@ -2276,6 +2286,8 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
                     obj->set_done(posIroning);
             }
         }
+        if (m_events_sink)
+            m_events_sink->publish(orca::AfterIroning{m_events_slice_handle});
 
         // Z-Contouring
         for (PrintObject *obj : m_objects) {
@@ -2302,6 +2314,8 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
                 }
             }
         );
+        if (m_events_sink)
+            m_events_sink->publish(orca::AfterSupports{m_events_slice_handle});
 
         for (PrintObject* obj : m_objects) {
             if (need_slicing_objects.count(obj) != 0) {
@@ -2370,6 +2384,8 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
 
         m_wipe_tower_data.clear();
         m_tool_ordering.clear();
+        if (m_events_sink)
+            m_events_sink->publish(orca::BeforeWipeTower{m_events_slice_handle, /*has_wipe_tower=*/this->has_wipe_tower()});
         if (this->has_wipe_tower()) {
             this->_make_wipe_tower();
         }
@@ -2506,6 +2522,8 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
 
         this->finalize_first_layer_convex_hull();
         this->set_done(psSkirtBrim);
+        if (m_events_sink)
+            m_events_sink->publish(orca::AfterSkirtBrim{m_events_slice_handle});
 
         if (time_cost_with_cache) {
             end_time = (long long)Slic3r::Utils::get_current_time_utc();
@@ -2568,6 +2586,8 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
     // output everything to a G-code file
     // The following call may die if the filename_format template substitution fails.
     std::string path = this->output_filepath(path_template);
+    if (m_events_sink)
+        m_events_sink->publish(orca::BeforeGCodeExport{m_events_slice_handle, std::filesystem::path{path}});
     std::string message;
     if (!path.empty() && result == nullptr) {
         // Only show the path if preview_data is not set -> running from command line.
@@ -2587,6 +2607,8 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
     gcode.export_layer_filaments(result);
     //BBS
     result->conflict_result = m_conflict_result;
+    if (m_events_sink)
+        m_events_sink->publish(orca::AfterGCodeExport{m_events_slice_handle, std::filesystem::path{path}, /*line_count=*/0});
     return path.c_str();
 }
 
