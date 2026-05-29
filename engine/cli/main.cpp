@@ -10,6 +10,7 @@
 #include <libslic3r/Model.hpp>
 #include <libslic3r/Print.hpp>
 #include <libslic3r/TriangleMesh.hpp>
+#include <libslic3r/GCode/GCodeProcessor.hpp>
 #include <libslic3r_version.h>
 
 // Phase 0.4d — verify the typed surface compiles + runs from a non-GUI consumer.
@@ -18,6 +19,8 @@
 
 #include <cstddef>
 #include <cstdio>
+#include <filesystem>
+#include <system_error>
 
 using namespace Slic3r;
 
@@ -87,13 +90,6 @@ int main() {
     // 4) Verify the slice produced real toolpaths. process() runs the full FFF
     //    pipeline (perimeters, infill, support, G-code generation) — a populated
     //    layer set is proof the engine sliced end-to-end without any GUI layer.
-    //
-    //    Note: we intentionally do NOT call export_gcode() here. Exporting a
-    //    *bare* full_print_config() crashes in append_full_config →
-    //    ConfigOptionEnumsGeneric::serialize() because some Orca enum options
-    //    ship without an enum-names map in their ConfigDef; serializing the
-    //    whole config as G-code comments dereferences it. The GUI never hits
-    //    this (it always has loaded profiles). Tracked for Phase 0.4c.
     if (print.objects().empty()) {
         std::printf("orca-engine-cli: slice produced no print objects\n");
         return 1;
@@ -104,6 +100,30 @@ int main() {
         return 1;
     }
 
-    std::printf("orca-engine-cli: engine OK — sliced 20mm cube into %zu layers\n", layers);
+    // 5) Export G-code (Phase 0.4c). Exporting a *bare* full_print_config()
+    //    used to crash in append_full_config → ConfigOptionEnumsGeneric::
+    //    serialize(): some Orca enum options ship without an enum-names map in
+    //    their ConfigDef, and serializing the whole config as G-code comments
+    //    dereferenced the null keys_map. Fixed in libslic3r/Config.hpp by
+    //    falling back to the integer storage when keys_map is null. This export
+    //    is the regression guard for that fix.
+    GCodeProcessorResult gcode_result;
+    const std::filesystem::path out_path =
+        std::filesystem::temp_directory_path() / "orca_engine_canary.gcode";
+    std::error_code rm_ec;
+    std::filesystem::remove(out_path, rm_ec);
+
+    const std::string written = print.export_gcode(out_path.string(), &gcode_result, nullptr);
+
+    std::error_code sz_ec;
+    const auto written_size = std::filesystem::file_size(written.empty() ? out_path : std::filesystem::path(written), sz_ec);
+    if (sz_ec || written_size < 1024) {
+        std::printf("orca-engine-cli: export produced no/too-small G-code (%s)\n",
+                    sz_ec ? sz_ec.message().c_str() : "size < 1KB");
+        return 1;
+    }
+
+    std::printf("orca-engine-cli: engine OK — sliced 20mm cube into %zu layers, exported %ju bytes of G-code\n",
+                layers, static_cast<std::uintmax_t>(written_size));
     return 0;
 }
