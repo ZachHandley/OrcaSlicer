@@ -1,6 +1,10 @@
 #pragma once
 
+#include <cstddef>
+#include <filesystem>
 #include <memory>
+#include <string>
+#include <vector>
 
 // Pulling in the service headers here makes `#include "orca/Session.hpp"` the
 // single entry point a consumer needs — they can call session.presets().X()
@@ -12,6 +16,7 @@
 #include "Slicer.hpp"
 #include "Export.hpp"
 #include "Events.hpp"
+#include "Result.hpp"
 
 // Forward declarations of libslic3r types referenced by the migration-scaffold
 // attach_* methods below. Phase 0.4a–0.6 use these to BORROW GUI/CLI-owned
@@ -64,6 +69,30 @@ public:
 
     void attach_model(Slic3r::Model* model);
     void detach_model();
+
+    // ---------- Plugin host (Phase 1) ----------
+    //
+    // The Session owns a PluginManager (loader) and a PluginRegistry (slot
+    // dispatch table). Both are engine-internal C++ types; consumers drive
+    // them through these Session methods or the C ABI in plugin_api.h.
+
+    // Walks <plugins_dir>/<id>/manifest.json entries and loads each native
+    // plugin found. Returns the number of plugins successfully loaded.
+    std::size_t discover_and_load_plugins(const std::filesystem::path& plugins_dir);
+
+    // Load a single plugin by directory. ORCA_OK on success.
+    Result<void> load_plugin(const std::filesystem::path& plugin_dir);
+
+    // Unload by id; ORCA_ERR_NOT_FOUND if not loaded.
+    Result<void> unload_plugin(const std::string& plugin_id);
+
+    void unload_all_plugins();
+
+    std::vector<std::string> loaded_plugin_ids() const;
+    bool                     is_plugin_loaded(const std::string& plugin_id) const;
+
+    // Read-only count of registered slots across all kinds. Useful for tests.
+    std::size_t registered_slot_count() const;
 
 private:
     Session();

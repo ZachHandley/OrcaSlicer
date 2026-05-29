@@ -12,6 +12,9 @@
 #include "orca/Project.hpp"
 #include "orca/Slicer.hpp"
 
+#include "PluginManager.hpp"
+#include "PluginRegistry.hpp"
+
 namespace orca {
 
 // Project::Impl carries the borrowed Slic3r::Model* — we reach in via a
@@ -27,11 +30,13 @@ namespace detail {
 } // namespace detail
 
 struct Session::Impl {
-    Presets  presets;
-    Project  project;
-    Slicer   slicer;
-    Exporter exporter;
-    Events   events;
+    Presets        presets;
+    Project        project;
+    Slicer         slicer;
+    Exporter       exporter;
+    Events         events;
+    PluginRegistry registry;
+    PluginManager  manager;
 };
 
 std::unique_ptr<Session> Session::create() {
@@ -43,8 +48,15 @@ std::unique_ptr<Session> Session::create() {
 Session::Session() : impl_(std::make_unique<Impl>()) {
     impl_->slicer.bind_session(this);
     impl_->exporter.bind_session(this);
+    impl_->manager.bind_session(this, &impl_->registry);
 }
-Session::~Session() = default;
+Session::~Session() {
+    // Unload plugins BEFORE the rest of Session::Impl tears down so plugin
+    // destructors can still reach the bus / presets / etc. through the host
+    // vtable. If we let unique_ptr destruction order run naturally the manager
+    // would unload after `events` is gone.
+    impl_->manager.unload_all();
+}
 
 Presets&       Session::presets()       { return impl_->presets; }
 const Presets& Session::presets() const { return impl_->presets; }
@@ -75,6 +87,54 @@ void Session::attach_model(Slic3r::Model* model) {
 
 void Session::detach_model() {
     impl_->project.detach_model();
+}
+
+// ---------- Plugin host (Phase 1) ----------
+
+std::size_t Session::discover_and_load_plugins(const std::filesystem::path& plugins_dir) {
+    return impl_->manager.discover_and_load(plugins_dir);
+}
+
+Result<void> Session::load_plugin(const std::filesystem::path& plugin_dir) {
+    orca_error_code_t rc = impl_->manager.load_plugin(plugin_dir);
+    if (rc == ORCA_OK) return ok();
+    // Map the C ABI code back to a C++ Result. The detailed message is on the
+    // PluginManager side (logged); the Result here carries only the code.
+    ErrorCode code = ErrorCode::Unknown;
+    switch (rc) {
+        case ORCA_ERR_INVALID_ARGUMENT: code = ErrorCode::InvalidArgument; break;
+        case ORCA_ERR_NOT_FOUND:        code = ErrorCode::NotFound;        break;
+        case ORCA_ERR_ALREADY_EXISTS:   code = ErrorCode::AlreadyExists;   break;
+        case ORCA_ERR_IO:               code = ErrorCode::IoError;         break;
+        case ORCA_ERR_PARSE:            code = ErrorCode::ParseError;      break;
+        case ORCA_ERR_UNSUPPORTED:      code = ErrorCode::Unsupported;     break;
+        default:                        code = ErrorCode::Unknown;         break;
+    }
+    return Result<void>{Error{code, "Session::load_plugin failed"}};
+}
+
+Result<void> Session::unload_plugin(const std::string& plugin_id) {
+    orca_error_code_t rc = impl_->manager.unload_plugin(plugin_id);
+    if (rc == ORCA_OK) return ok();
+    return Result<void>{Error{
+        rc == ORCA_ERR_NOT_FOUND ? ErrorCode::NotFound : ErrorCode::Unknown,
+        "Session::unload_plugin failed"}};
+}
+
+void Session::unload_all_plugins() {
+    impl_->manager.unload_all();
+}
+
+std::vector<std::string> Session::loaded_plugin_ids() const {
+    return impl_->manager.loaded_plugin_ids();
+}
+
+bool Session::is_plugin_loaded(const std::string& plugin_id) const {
+    return impl_->manager.is_loaded(plugin_id);
+}
+
+std::size_t Session::registered_slot_count() const {
+    return impl_->registry.slot_count();
 }
 
 } // namespace orca
