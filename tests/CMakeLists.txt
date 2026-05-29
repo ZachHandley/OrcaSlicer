@@ -53,5 +53,6 @@ add_subdirectory(slic3rutils)
 add_subdirectory(fff_print)
 add_subdirectory(sla_print)
 add_subdirectory(engine-c-abi)
+add_subdirectory(engine)
 
 
