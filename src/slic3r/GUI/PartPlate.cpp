@@ -25,6 +25,10 @@
 #include "libslic3r/Utils.hpp"
 
 #include "orca/Config.hpp"
+#include "orca/Globals.hpp"
+#include "orca/Session.hpp"
+#include "orca/Events.hpp"
+#include "orca/EventTypes.hpp"
 
 #include "I18N.hpp"
 #include "GUI_App.hpp"
@@ -3369,6 +3373,8 @@ void PartPlate::update_slice_context(BackgroundSlicingProcess & process)
 			event->status.text = temp + event->status.text;
 		}
 		wxQueueEvent(m_plater, event);
+		if (::orca::has_session())
+			::orca::session().events().publish<::orca::SlicingProgress>({0, static_cast<float>(status.percent) / 100.0f, status.text});
 	};
 
 	process.set_fff_print(m_print);

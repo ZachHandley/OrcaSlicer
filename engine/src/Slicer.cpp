@@ -10,6 +10,8 @@
 
 #include "orca/Slicer.hpp"
 #include "orca/Session.hpp"
+#include "orca/Events.hpp"
+#include "orca/EventTypes.hpp"
 
 #include <libslic3r/Model.hpp>
 #include <libslic3r/Print.hpp>
@@ -138,10 +140,20 @@ void Slicer::run_slice(Slic3r::Model work_model) {
     // The status callback runs ON THE WORKER THREAD as process() advances —
     // it must lock the Impl mutex (short critical section) to publish progress.
     print->set_status_callback([this](const Slic3r::PrintBase::SlicingStatus& s) {
-        std::lock_guard<std::mutex> lk(impl_->mtx);
-        impl_->status.progress = static_cast<float>(s.percent) / 100.0f;
-        if (!s.text.empty())
-            impl_->status.message = s.text;
+        float       progress;
+        std::string message;
+        SliceHandle handle;
+        {
+            std::lock_guard<std::mutex> lk(impl_->mtx);
+            impl_->status.progress = static_cast<float>(s.percent) / 100.0f;
+            if (!s.text.empty())
+                impl_->status.message = s.text;
+            progress = impl_->status.progress;
+            message  = impl_->status.message;
+            handle   = impl_->current_handle;
+        }
+        if (impl_->session)
+            impl_->session->events().publish<SlicingProgress>({handle, progress, message});
     });
 
     try {
@@ -213,13 +225,23 @@ void Slicer::run_slice(Slic3r::Model work_model) {
 }
 
 void Slicer::finish_worker(bool store_print, std::unique_ptr<Slic3r::Print> print) {
-    std::lock_guard<std::mutex> lk(impl_->mtx);
-    impl_->active_print = nullptr;
-    if (store_print)
-        impl_->print = std::move(print);
-    else
-        impl_->print.reset();
-    impl_->busy = false;
+    SliceHandle handle;
+    bool        success;
+    std::string error;
+    {
+        std::lock_guard<std::mutex> lk(impl_->mtx);
+        impl_->active_print = nullptr;
+        if (store_print)
+            impl_->print = std::move(print);
+        else
+            impl_->print.reset();
+        impl_->busy = false;
+        handle  = impl_->current_handle;
+        success = impl_->status.state == SliceState::Completed;
+        error   = impl_->status.error;
+    }
+    if (impl_->session)
+        impl_->session->events().publish<SlicingFinished>({handle, success, error});
 }
 
 void Slicer::cancel(SliceHandle handle) {

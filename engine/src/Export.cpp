@@ -5,6 +5,8 @@
 #include "orca/Export.hpp"
 #include "orca/Session.hpp"
 #include "orca/Slicer.hpp"
+#include "orca/Events.hpp"
+#include "orca/EventTypes.hpp"
 
 #include <libslic3r/Print.hpp>
 #include <libslic3r/GCode/GCodeProcessor.hpp>
@@ -43,12 +45,18 @@ Result<ExportHandle> Exporter::export_gcode(ExportParams params) {
     if (params.output_path.empty())
         return err<ExportHandle>(ErrorCode::InvalidArgument, "Exporter: empty output_path");
 
+    const ExportHandle handle = impl_->next_handle++;
+    if (impl_->session)
+        impl_->session->events().publish<ExportBegan>({handle, params.output_path});
+
     std::string written;
     impl_->busy = true;
     try {
         written = print->export_gcode(params.output_path.string(), result, nullptr);
     } catch (std::exception& ex) {
         impl_->busy = false;
+        if (impl_->session)
+            impl_->session->events().publish<ExportFinished>({handle, false, 0, ex.what()});
         return err<ExportHandle>(ErrorCode::IoError,
                                  std::string("Exporter: export_gcode threw: ") + ex.what());
     }
@@ -58,10 +66,15 @@ Result<ExportHandle> Exporter::export_gcode(ExportParams params) {
     std::filesystem::path final_path =
         written.empty() ? params.output_path : std::filesystem::path(written);
     auto sz = std::filesystem::file_size(final_path, ec);
-    if (ec || sz == 0)
+    if (ec || sz == 0) {
+        if (impl_->session)
+            impl_->session->events().publish<ExportFinished>({handle, false, 0, "export produced no/empty G-code"});
         return err<ExportHandle>(ErrorCode::IoError, "Exporter: export produced no/empty G-code");
+    }
 
-    return ok<ExportHandle>(impl_->next_handle++);
+    if (impl_->session)
+        impl_->session->events().publish<ExportFinished>({handle, true, 0, ""});
+    return ok<ExportHandle>(handle);
 }
 
 void Exporter::cancel(ExportHandle /*handle*/) {}

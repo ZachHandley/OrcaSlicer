@@ -19,7 +19,10 @@
 #include <orca/Session.hpp>
 #include <orca/Slicer.hpp>
 #include <orca/Export.hpp>
+#include <orca/Events.hpp>
+#include <orca/EventTypes.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <thread>
 
@@ -138,6 +141,21 @@ int main() {
     {
         auto session = orca::Session::create();
 
+        // Phase 0.5 — subscribe to the engine event bus and assert the
+        // Slicer/Exporter publish typed lifecycle events. Subscribers fire on
+        // the worker thread, so use atomics. This is the 0.5 regression guard:
+        // if the engine stops publishing, the canary fails fast.
+        std::atomic<int>  progress_events{0};
+        std::atomic<bool> got_finished{false};
+        std::atomic<bool> finished_success{false};
+        std::atomic<bool> export_finished_ok{false};
+        session->events().subscribe<orca::SlicingProgress>(
+            [&](const orca::SlicingProgress&) { ++progress_events; });
+        session->events().subscribe<orca::SlicingFinished>(
+            [&](const orca::SlicingFinished& e) { got_finished = true; finished_success = e.success; });
+        session->events().subscribe<orca::ExportFinished>(
+            [&](const orca::ExportFinished& e) { export_finished_ok = e.success; });
+
         orca::SliceParams sp;            // FFF, plate 0 (defaults)
         auto h = session->slicer().request_slice(sp, model, config);
         if (!h) {
@@ -168,6 +186,16 @@ int main() {
             return 1;
         }
 
+        // Phase 0.5 — the bus must have delivered progress + a successful finish.
+        if (progress_events.load() == 0) {
+            std::printf("orca-engine-cli: bus delivered no SlicingProgress events\n");
+            return 1;
+        }
+        if (!got_finished.load() || !finished_success.load()) {
+            std::printf("orca-engine-cli: bus did not deliver a successful SlicingFinished\n");
+            return 1;
+        }
+
         const std::filesystem::path svc_out =
             std::filesystem::temp_directory_path() / "orca_engine_service.gcode";
         std::error_code rm2;
@@ -185,8 +213,13 @@ int main() {
             std::printf("orca-engine-cli: service export too small/missing\n");
             return 1;
         }
-        std::printf("orca-engine-cli: service OK — sliced+exported via Slicer/Exporter (%ju bytes)\n",
-                    static_cast<std::uintmax_t>(svc_size));
+        if (!export_finished_ok.load()) {
+            std::printf("orca-engine-cli: bus did not deliver a successful ExportFinished\n");
+            return 1;
+        }
+        std::printf("orca-engine-cli: service OK — sliced+exported via Slicer/Exporter (%ju bytes), "
+                    "bus delivered %d progress + finished + export events\n",
+                    static_cast<std::uintmax_t>(svc_size), progress_events.load());
     }
 
     return 0;
