@@ -470,7 +470,7 @@ void AMSMaterialsSetting::on_select_reset(wxCommandEvent& event) {
     std::string color_str;  // reset use empty string
 
     std::string   selected_ams_id;
-    PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle *preset_bundle = ::orca::session().presets().raw_ptr();
     if (preset_bundle) {
         for (auto it = preset_bundle->filaments.begin(); it != preset_bundle->filaments.end(); it++) {
             auto        filament_item = map_filament_items[m_comboBox_filament->GetValue().ToStdString()];
@@ -537,7 +537,7 @@ void AMSMaterialsSetting::on_select_ok(wxCommandEvent &event)
     ams_filament_id = "";
     ams_setting_id = "";
 
-    PresetBundle* preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle* preset_bundle = ::orca::session().presets().raw_ptr();
     if (preset_bundle) {
         for (auto it = preset_bundle->filaments.begin(); it != preset_bundle->filaments.end(); it++) {
 
@@ -861,7 +861,7 @@ void AMSMaterialsSetting::Popup(wxString filament, wxString sn, wxString temp_mi
     std::unordered_map<wxString, wxString> query_filament_types;  //
 
     std::set<std::string> filament_id_set;
-    PresetBundle *        preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle *        preset_bundle = ::orca::session().presets().raw_ptr();
     std::ostringstream    stream;
     stream << std::fixed << std::setprecision(1) << obj->GetExtderSystem()->GetNozzleDiameter(0);
     std::string nozzle_diameter_str = stream.str();
@@ -1098,7 +1098,7 @@ void AMSMaterialsSetting::on_select_filament(wxCommandEvent &evt)
     int* from_printer = static_cast<int*>(m_comboBox_filament->GetClientData());
 
     m_filament_type = "";
-    PresetBundle* preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle* preset_bundle = ::orca::session().presets().raw_ptr();
     if (preset_bundle) {
         std::ostringstream stream;
         if (obj)

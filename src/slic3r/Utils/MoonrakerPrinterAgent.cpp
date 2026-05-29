@@ -804,7 +804,7 @@ bool MoonrakerPrinterAgent::fetch_moonraker_filament_data(std::vector<AmsTrayDat
         tray.bed_temp = safe_json_int(lane_obj, "bed_temp");
         tray.nozzle_temp = safe_json_int(lane_obj, "nozzle_temp");
         tray.has_filament = !tray.tray_type.empty();
-        auto* bundle = GUI::wxGetApp().preset_bundle;
+        auto* bundle = ::orca::session().presets().raw_ptr();
         tray.tray_info_idx = bundle
             ? bundle->filaments.filament_id_by_type(tray.tray_type)
             : map_filament_type_to_generic_id(tray.tray_type);
@@ -932,7 +932,7 @@ bool MoonrakerPrinterAgent::fetch_hh_filament_info(std::vector<AmsTrayData>& tra
         tray.bed_temp = 0;  // HH doesn't provide bed temp in gate arrays
         tray.has_filament = true;
 
-        auto* bundle = GUI::wxGetApp().preset_bundle;
+        auto* bundle = ::orca::session().presets().raw_ptr();
         tray.tray_info_idx = bundle
             ? bundle->filaments.filament_id_by_type(tray.tray_type)
             : map_filament_type_to_generic_id(tray.tray_type);
@@ -1061,7 +1061,7 @@ int MoonrakerPrinterAgent::handle_request(const std::string& dev_id, const std::
 bool MoonrakerPrinterAgent::init_device_info(std::string dev_id, std::string dev_ip, std::string username, std::string password, bool use_ssl)
 {
     device_info         = MoonrakerDeviceInfo{};
-    auto* preset_bundle = GUI::wxGetApp().preset_bundle;
+    auto* preset_bundle = ::orca::session().presets().raw_ptr();
     if (!preset_bundle) {
         return false;
     }

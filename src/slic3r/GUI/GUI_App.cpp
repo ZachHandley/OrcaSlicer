@@ -12,6 +12,7 @@
 #include <boost/chrono/duration.hpp>
 #include <boost/log/detail/native_typeof.hpp>
 #include <libslic3r/Config.hpp>
+#include "orca/Config.hpp"
 #include <wx/event.h>
 
 // Localization headers: include libslic3r version first so everything in this file
@@ -2181,7 +2182,7 @@ bool GUI_App::is_blocking_printing(MachineObject *obj_)
         return false;
     }
 
-    PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle *preset_bundle = ::orca::session().presets().raw_ptr();
     std::string    source_model  = preset_bundle->printers.get_edited_preset().get_printer_type(preset_bundle);
 
     if (source_model != target_model) {
@@ -2786,6 +2787,15 @@ bool GUI_App::on_init_inner()
     // just checking for existence of Slic3r::data_dir is not enough : it may be an empty directory
     // supplied as argument to --datadir; in that case we should still run the wizard
     preset_bundle->setup_directories();
+
+    // Phase 0.4a — bring up the engine Session and register it globally so the
+    // rewriter-produced `::orca::session().presets().raw_ptr()` call sites can
+    // resolve. The PresetBundle is borrowed (not transferred) for the
+    // migration window; GUI continues to own it. Phase 1 collapses ownership
+    // into Session.
+    m_orca_session = ::orca::Session::create();
+    m_orca_session->attach_preset_bundle(preset_bundle);
+    ::orca::set_session(m_orca_session.get());
 
 
     if (m_init_app_config_from_older)
@@ -3430,7 +3440,7 @@ void GUI_App::switch_printer_agent()
     } else {
         const DynamicPrintConfig& config = preset_bundle->printers.get_edited_preset().config;
         if (config.has("printer_agent")) {
-            const std::string& value = config.option<ConfigOptionString>("printer_agent")->value;
+            const std::string value = ::orca::config::get<::orca::keys::printer_agent>(config).value_or(std::string{});
             if (!value.empty())
                 effective_agent_id = value;
         }
@@ -3519,8 +3529,8 @@ void GUI_App::select_machine(const std::string& agent_id)
         // We use dev_id as dev_ip to store the address (host:port)
         machine.dev_ip = dev_id;
         machine.dev_name = dev_id;
-        machine.printer_type = preset.config.opt_string("printer_model");
-        auto access_code = preset.config.opt_string("printhost_apikey");
+        machine.printer_type = ::orca::config::get<::orca::keys::printer_model>(preset.config).value_or(std::string{});
+        auto access_code = ::orca::config::get<::orca::keys::printhost_apikey>(preset.config).value_or(std::string{});
         // Orca expect non empty access code
         if (access_code.empty()) {
             access_code = "88888888";
@@ -4909,11 +4919,11 @@ void GUI_App::enable_user_preset_folder(bool enable)
     if (enable) {
         std::string user_id = m_agent->get_user_id();
         app_config->set("preset_folder", user_id);
-        GUI::wxGetApp().preset_bundle->update_user_presets_directory(user_id);
+        ::orca::session().presets().raw_ptr()->update_user_presets_directory(user_id);
     } else {
         BOOST_LOG_TRIVIAL(info) << "preset_folder: set to empty";
         app_config->set("preset_folder", "");
-        GUI::wxGetApp().preset_bundle->update_user_presets_directory(DEFAULT_USER_FOLDER_NAME);
+        ::orca::session().presets().raw_ptr()->update_user_presets_directory(DEFAULT_USER_FOLDER_NAME);
     }
 }
 
@@ -7974,10 +7984,10 @@ void GUI_App::load_current_presets(bool active_preset_combox/*= false*/, bool ch
     PrinterTechnology printer_technology = edited_printer_preset.printer_technology();
     // ORCA: Sync filament count with the printer's nozzle count before loading presets for multi-tool printers.
     // This ensures filament_presets vector is properly sized when combo boxes are created/updated.
-    if (printer_technology == ptFFF && !edited_printer_preset.config.opt_bool("single_extruder_multi_material")) {
-        auto* nozzle_diameter = edited_printer_preset.config.option<ConfigOptionFloats>("nozzle_diameter");
+    if (printer_technology == ptFFF && !::orca::config::get<::orca::keys::single_extruder_multi_material>(edited_printer_preset.config).value_or(false)) {
+        auto nozzle_diameter = ::orca::config::get_vec<::orca::keys::nozzle_diameter>(edited_printer_preset.config);
         if (nozzle_diameter) {
-            preset_bundle->set_num_filaments(nozzle_diameter->values.size());
+            preset_bundle->set_num_filaments(nozzle_diameter->size());
         }
     }
 	this->plater()->set_printer_technology(printer_technology);
@@ -8296,7 +8306,7 @@ ParamsDialog* GUI_App::params_dialog()
 
 Model& GUI_App::model()
 {
-    return plater_->model();
+    return ::orca::session().project().raw();
 }
 
 Downloader* GUI_App::downloader()
@@ -8451,7 +8461,7 @@ int GUI_App::extruders_cnt() const
 {
     const Preset& preset = preset_bundle->printers.get_selected_preset();
     return preset.printer_technology() == ptSLA ? 1 :
-           preset.config.option<ConfigOptionFloats>("nozzle_diameter")->values.size();
+           ::orca::config::get_vec<::orca::keys::nozzle_diameter>(preset.config).value_or(std::vector<double>{}).size();
 }
 
 // extruders count from edited printer preset
@@ -8459,7 +8469,7 @@ int GUI_App::extruders_edited_cnt() const
 {
     const Preset& preset = preset_bundle->printers.get_edited_preset();
     return preset.printer_technology() == ptSLA ? 1 :
-           preset.config.option<ConfigOptionFloats>("nozzle_diameter")->values.size();
+           ::orca::config::get_vec<::orca::keys::nozzle_diameter>(preset.config).value_or(std::vector<double>{}).size();
 }
 
 // BBS
@@ -8473,7 +8483,7 @@ PrintSequence GUI_App::global_print_sequence() const
     PrintSequence global_print_seq = PrintSequence::ByDefault;
     auto curr_preset_config = preset_bundle->prints.get_edited_preset().config;
     if (curr_preset_config.has("print_sequence"))
-        global_print_seq = curr_preset_config.option<ConfigOptionEnum<PrintSequence>>("print_sequence")->value;
+        global_print_seq = ::orca::config::get_enum<::orca::keys::print_sequence, PrintSequence>(curr_preset_config).value_or(static_cast<PrintSequence>(0));
     return global_print_seq;
 }
 
@@ -9006,8 +9016,8 @@ void GUI_App::start_download(std::string url)
 
 bool is_soluble_filament(int extruder_id)
 {
-    auto &filament_presets = Slic3r::GUI::wxGetApp().preset_bundle->filament_presets;
-    auto &filaments        = Slic3r::GUI::wxGetApp().preset_bundle->filaments;
+    auto &filament_presets = ::orca::session().presets().raw_ptr()->filament_presets;
+    auto &filaments        = ::orca::session().presets().raw_ptr()->filaments;
 
     if (extruder_id >= filament_presets.size()) return false;
 
@@ -9021,10 +9031,10 @@ bool is_soluble_filament(int extruder_id)
 };
 
 bool has_filaments(const std::vector<string>& model_filaments) {
-    auto &filament_presets = Slic3r::GUI::wxGetApp().preset_bundle->filament_presets;
+    auto &filament_presets = ::orca::session().presets().raw_ptr()->filament_presets;
     if (!Slic3r::GUI::wxGetApp().plater()) return false;
-    auto model_objects = Slic3r::GUI::wxGetApp().plater()->model().objects;
-    const Slic3r::DynamicPrintConfig &config = wxGetApp().preset_bundle->full_config();
+    auto model_objects = ::orca::session().project().raw().objects;
+    const Slic3r::DynamicPrintConfig &config = ::orca::session().presets().raw_ptr()->full_config();
     Model::setExtruderParams(config, filament_presets.size());
 
     auto get_filament_name = [](int id) { return Model::extruderParamsMap.find(id) != Model::extruderParamsMap.end() ? Model::extruderParamsMap.at(id).materialName : "PLA"; };
@@ -9042,15 +9052,15 @@ bool has_filaments(const std::vector<string>& model_filaments) {
 
 bool is_support_filament(int extruder_id, bool strict_check)
 {
-    auto &filament_presets = Slic3r::GUI::wxGetApp().preset_bundle->filament_presets;
-    auto &filaments        = Slic3r::GUI::wxGetApp().preset_bundle->filaments;
+    auto &filament_presets = ::orca::session().presets().raw_ptr()->filament_presets;
+    auto &filaments        = ::orca::session().presets().raw_ptr()->filaments;
 
     if (extruder_id >= filament_presets.size()) return false;
 
     Slic3r::Preset *filament = filaments.find_preset(filament_presets[extruder_id]);
     if (filament == nullptr) return false;
 
-    std::string filament_type = filament->config.option<ConfigOptionStrings>("filament_type")->values[0];
+    std::string filament_type = ::orca::config::get_at<::orca::keys::filament_type>(filament->config, 0).value_or(std::string{});
 
     Slic3r::ConfigOptionBools *support_option = dynamic_cast<Slic3r::ConfigOptionBools *>(filament->config.option("filament_is_support"));
 

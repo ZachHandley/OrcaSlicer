@@ -62,6 +62,7 @@
 #include "libslic3r/Polygon.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "orca/Config.hpp"
 #include "libslic3r/SLAPrint.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -637,11 +638,11 @@ void Sidebar::priv::layout_printer(bool isBBL, bool isDual)
     m_printer_bbl_sync->Show(isBBL);
 
     // ORCA show plate type combo box only when its supported
-    PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
+    PresetBundle &preset_bundle = *::orca::session().presets().raw_ptr();
     auto cfg = preset_bundle.printers.get_edited_preset().config;
     // Orca: we use preset_bundle.is_bbl_vendor() instead of isBBL to determine if the plate type combo box should be shown
     // ref: https://github.com/OrcaSlicer/OrcaSlicer/pull/11610#discussion_r2607411847
-    panel_printer_bed->Show(preset_bundle.is_bbl_vendor() || cfg.opt_bool("support_multi_bed_types"));
+    panel_printer_bed->Show(preset_bundle.is_bbl_vendor() || ::orca::config::get<::orca::keys::support_multi_bed_types>(cfg).value_or(false));
 
     extruder_dual_sizer->Show(isDual);
 
@@ -676,7 +677,7 @@ Sidebar::priv::~priv()
 
 void Sidebar::priv::show_preset_comboboxes()
 {
-    const bool showSLA = wxGetApp().preset_bundle->printers.get_edited_preset().printer_technology() == ptSLA;
+    const bool showSLA = ::orca::session().presets().raw_ptr()->printers.get_edited_preset().printer_technology() == ptSLA;
 
 //BBS
 #if 0
@@ -755,15 +756,18 @@ std::vector<int> get_min_flush_volumes(const DynamicPrintConfig &full_config, si
     //const auto& full_config = wxGetApp().preset_bundle->full_config();
     //auto& printer_config = wxGetApp().preset_bundle->printers.get_edited_preset().config;
 
+    // TODO(orca-types): nullable surface not wired (ConfigOptionFloatsNullable); option* captured + reused
     const ConfigOptionFloatsNullable* nozzle_volume_opt = full_config.option<ConfigOptionFloatsNullable>("nozzle_volume");
     int nozzle_volume_val = nozzle_volume_opt ? (int)nozzle_volume_opt->get_at(nozzle_id) : 0;
 
+    // TODO(orca-types): manual migration — option* captured into local and reused (null-check + ->value)
     const ConfigOptionInt* enable_long_retraction_when_cut_opt = full_config.option<ConfigOptionInt>("enable_long_retraction_when_cut");
     int machine_enabled_level = 0;
     if (enable_long_retraction_when_cut_opt) {
         machine_enabled_level = enable_long_retraction_when_cut_opt->value;
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": get enable_long_retraction_when_cut from config, value=%1%")%machine_enabled_level;
     }
+    // TODO(orca-types): manual migration — option* captured into local and reused (null-check + ->values[i])
     const ConfigOptionBools* long_retractions_when_cut_opt = full_config.option<ConfigOptionBools>("long_retractions_when_cut");
     bool machine_activated = false;
     if (long_retractions_when_cut_opt) {
@@ -771,21 +775,24 @@ std::vector<int> get_min_flush_volumes(const DynamicPrintConfig &full_config, si
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": get long_retractions_when_cut from config, value=%1%, activated=%2%")%long_retractions_when_cut_opt->values[0] %machine_activated;
     }
 
-    size_t filament_size = full_config.option<ConfigOptionFloats>("filament_diameter")->values.size();
+    size_t filament_size = ::orca::config::get_vec<::orca::keys::filament_diameter>(full_config).value_or(std::vector<double>{}).size();
     std::vector<double> filament_retraction_distance_when_cut(filament_size, 18.0f), printer_retraction_distance_when_cut(filament_size, 18.0f);
     std::vector<unsigned char> filament_long_retractions_when_cut(filament_size, 0);
+    // TODO(orca-types): unknown key filament_retraction_distances_when_cut (not in ConfigDef); option* captured + reused
     const ConfigOptionFloats* filament_retraction_distances_when_cut_opt = full_config.option<ConfigOptionFloats>("filament_retraction_distances_when_cut");
     if (filament_retraction_distances_when_cut_opt) {
         filament_retraction_distance_when_cut = filament_retraction_distances_when_cut_opt->values;
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": get filament_retraction_distance_when_cut from config, size=%1%, values=%2%")%filament_retraction_distance_when_cut.size() %filament_retraction_distances_when_cut_opt->serialize();
     }
 
+    // TODO(orca-types): manual migration — option* captured into local and reused (null-check + ->values + ->serialize)
     const ConfigOptionFloats* printer_retraction_distance_when_cut_opt = full_config.option<ConfigOptionFloats>("retraction_distances_when_cut");
     if (printer_retraction_distance_when_cut_opt) {
         printer_retraction_distance_when_cut = printer_retraction_distance_when_cut_opt->values;
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": get retraction_distances_when_cut from config, size=%1%, values=%2%")%printer_retraction_distance_when_cut.size() %printer_retraction_distance_when_cut_opt->serialize();
     }
 
+    // TODO(orca-types): unknown key filament_long_retractions_when_cut (not in ConfigDef); option* captured + reused
     const ConfigOptionBools* filament_long_retractions_when_cut_opt = full_config.option<ConfigOptionBools>("filament_long_retractions_when_cut");
     if (filament_long_retractions_when_cut_opt) {
         filament_long_retractions_when_cut = filament_long_retractions_when_cut_opt->values;
@@ -864,11 +871,11 @@ struct DynamicFilamentList : DynamicList
         if (!force && m_choices.empty())
             return;
         auto icons = get_extruder_color_icons(true);
-        auto presets = wxGetApp().preset_bundle->filament_presets;
+        auto presets = ::orca::session().presets().raw_ptr()->filament_presets;
         for (int i = 0; i < presets.size(); ++i) {
             wxString str;
             std::string type;
-            wxGetApp().preset_bundle->filaments.find_preset(presets[i])->get_filament_type(type);
+            ::orca::session().presets().raw_ptr()->filaments.find_preset(presets[i])->get_filament_type(type);
             str << type;
             items.push_back({str, i < icons.size() ? icons[i] : nullptr});
         }
@@ -911,11 +918,11 @@ struct DynamicFilamentList1Based : DynamicFilamentList
         if (!force && m_choices.empty())
             return;
         auto icons = get_extruder_color_icons(true);
-        auto presets = wxGetApp().preset_bundle->filament_presets;
+        auto presets = ::orca::session().presets().raw_ptr()->filament_presets;
         for (int i = 0; i < presets.size(); ++i) {
             wxString str;
             std::string type;
-            wxGetApp().preset_bundle->filaments.find_preset(presets[i])->get_filament_type(type);
+            ::orca::session().presets().raw_ptr()->filaments.find_preset(presets[i])->get_filament_type(type);
             str << type;
             items.push_back({str, i < icons.size() ? icons[i] : nullptr});
         }
@@ -1015,7 +1022,7 @@ public:
 
     static void SetAMSCount(int index, int ams4, int ams1)
     {
-        PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
+        PresetBundle &preset_bundle = *::orca::session().presets().raw_ptr();
         preset_bundle.extruder_ams_counts.resize(2);
         auto &ams_map = preset_bundle.extruder_ams_counts[index];
         ams_map[4] = ams4;
@@ -1029,7 +1036,7 @@ public:
 
     static void GetAMSCount(int index, int & ams4, int & ams1)
     {
-        PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
+        PresetBundle &preset_bundle = *::orca::session().presets().raw_ptr();
         if (preset_bundle.extruder_ams_counts.empty()) {
             ams4 = 0;
             ams1 = 0;
@@ -1043,7 +1050,7 @@ public:
 
     static void UpdateAMSCount(int index, ExtruderGroup *extruder)
     {
-        std::vector<std::map<int, int>> &ams_counts = wxGetApp().preset_bundle->extruder_ams_counts;
+        std::vector<std::map<int, int>> &ams_counts = ::orca::session().presets().raw_ptr()->extruder_ams_counts;
         ams_counts.resize(2);
         std::map<int, int>& ams_map = ams_counts[index];
         if (ams_map.find(4) == ams_map.end()) {
@@ -1286,7 +1293,7 @@ bool Sidebar::priv::switch_diameter(bool single)
         auto diameter_left = left_extruder->combo_diameter->GetValue();
         auto diameter_right = right_extruder->combo_diameter->GetValue();
         if (diameter_left != diameter_right) {
-            std::string printer_type = wxGetApp().preset_bundle->printers.get_edited_preset().get_printer_type(wxGetApp().preset_bundle);
+            std::string printer_type = ::orca::session().presets().raw_ptr()->printers.get_edited_preset().get_printer_type(::orca::session().presets().raw_ptr());
             auto left_name  = _L(DevPrinterConfigUtil::get_toolhead_display_name(printer_type, DEPUTY_EXTRUDER_ID, ToolHeadComponent::Nozzle, ToolHeadNameCase::SentenceCase));
             auto right_name = _L(DevPrinterConfigUtil::get_toolhead_display_name(printer_type, MAIN_EXTRUDER_ID, ToolHeadComponent::Nozzle, ToolHeadNameCase::SentenceCase));
             MessageDialog dlg(this->plater,
@@ -1310,7 +1317,7 @@ bool Sidebar::priv::switch_diameter(bool single)
     }
     
     // ORCA: Check if the selected diameter matches the current nozzle diameter in the config
-    Preset& printer_preset = wxGetApp().preset_bundle->printers.get_edited_preset();
+    Preset& printer_preset = ::orca::session().presets().raw_ptr()->printers.get_edited_preset();
     auto* nozzle_diameter = dynamic_cast<const ConfigOptionFloats*>(printer_preset.config.option("nozzle_diameter"));
     if (nozzle_diameter && nozzle_diameter->size() > 0) {
         auto current_nozzle_dia = get_diameter_string(nozzle_diameter->values[0]);
@@ -1320,7 +1327,7 @@ bool Sidebar::priv::switch_diameter(bool single)
         }
     }
     
-    auto preset          = wxGetApp().preset_bundle->get_similar_printer_preset({}, diameter.ToStdString());
+    auto preset          = ::orca::session().presets().raw_ptr()->get_similar_printer_preset({}, diameter.ToStdString());
     if (preset == nullptr) {
         // ORCA add a text. this appears when user tries to change nozzle value but config doesnt have a inherited or compatible preset
         MessageDialog dlg(this->plater, _L("Configuration incompatible"), _L("Warning"), wxICON_WARNING | wxOK);
@@ -1351,7 +1358,7 @@ bool Sidebar::priv::sync_extruder_list(bool &only_external_material)
     }
 
     std::string machine_print_name = obj->get_show_printer_type();
-    PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle *preset_bundle = ::orca::session().presets().raw_ptr();
     std::string target_model_id  = preset_bundle->printers.get_selected_preset().get_printer_type(preset_bundle);
     Preset* machine_preset = get_printer_preset(obj);
     if (!machine_preset) {
@@ -1378,6 +1385,7 @@ bool Sidebar::priv::sync_extruder_list(bool &only_external_material)
     int extruder_nums = preset_bundle->get_printer_extruder_count();
     std::vector<int> extruder_map(extruder_nums);
     std::iota(extruder_map.begin(), extruder_map.end(), 0);
+    // TODO(orca-types): manual migration — option* captured into local and reused (null-check + ->values.size() + ->values)
     const ConfigOptionInts *physical_extruder_map = cur_preset.config.option<ConfigOptionInts>("physical_extruder_map");
     if (physical_extruder_map != nullptr) {
         assert(physical_extruder_map->values.size() == extruder_nums);
@@ -1474,7 +1482,7 @@ void Sidebar::priv::update_sync_status(const MachineObject *obj)
         return;
     }
 
-    PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle *preset_bundle = ::orca::session().presets().raw_ptr();
     if (!preset_bundle) {
         clear_all_sync_status();
         return;
@@ -1482,7 +1490,7 @@ void Sidebar::priv::update_sync_status(const MachineObject *obj)
 
     bool printer_synced = false;
     // 1. update printer status
-    const Preset &cur_preset = wxGetApp().preset_bundle->printers.get_edited_preset();
+    const Preset &cur_preset = ::orca::session().presets().raw_ptr()->printers.get_edited_preset();
     if (preset_bundle && preset_bundle->printers.get_edited_preset().get_printer_type(preset_bundle) == obj->get_show_printer_type()) {
         panel_printer_preset->ShowBadge(true);
         printer_synced = true;
@@ -1526,12 +1534,12 @@ void Sidebar::priv::update_sync_status(const MachineObject *obj)
         return;
 
     std::vector<ExtruderInfo> extruder_infos(extruder_nums);
-    std::vector<int> nozzle_volume_types = wxGetApp().preset_bundle->project_config.option<ConfigOptionEnumsGeneric>("nozzle_volume_type")->values;
+    std::vector<int> nozzle_volume_types = ::orca::session().presets().get_vec<::orca::keys::nozzle_volume_type>(::orca::ConfigScope::Project).value_or(std::vector<int>{});
     //for (size_t i = 0; i < nozzle_volume_types.size(); ++i) {
     //    extruder_infos[i].nozzle_volue_type = nozzle_volume_types[i];
     //}
 
-    std::vector<std::map<int, int>> extruder_ams_counts = wxGetApp().preset_bundle->extruder_ams_counts;
+    std::vector<std::map<int, int>> extruder_ams_counts = ::orca::session().presets().raw_ptr()->extruder_ams_counts;
     if (extruder_ams_counts.size() >= extruder_nums) {
         for (size_t i = 0; i < extruder_nums; ++i) {
             for (auto iter = extruder_ams_counts[i].begin(); iter != extruder_ams_counts[i].end(); ++iter) {
@@ -2024,7 +2032,7 @@ Sidebar::Sidebar(Plater *parent)
         int bed_type_idx = bed_type_value - 1;
         p->combo_printer_bed->Select(bed_type_idx);
 
-        auto& project_config = wxGetApp().preset_bundle->project_config;
+        auto& project_config = ::orca::session().presets().raw_ptr()->project_config;
         /*const t_config_enum_values* keys_map = print_config_def.get("curr_bed_type")->enum_keys_map;
         BedType bed_type = btCount;
         for (auto item : *keys_map) {
@@ -2466,7 +2474,7 @@ void Sidebar::remove_unused_filament_combos(const size_t current_extruder_count)
 
 void Sidebar::update_all_preset_comboboxes()
 {
-    PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
+    PresetBundle &preset_bundle = *::orca::session().presets().raw_ptr();
     const auto print_tech = preset_bundle.printers.get_edited_preset().printer_technology();
 
     bool is_bbl_vendor = preset_bundle.is_bbl_vendor();
@@ -2499,9 +2507,9 @@ void Sidebar::update_all_preset_comboboxes()
         if(url.empty())
             url = wxString::Format("file://%s/web/orca/missing_connection.html", from_u8(resources_dir()));
         else {
-            const auto host_type = cfg.option<ConfigOptionEnum<PrintHostType>>("host_type")->value;
+            const auto host_type = ::orca::config::get_enum<::orca::keys::host_type, PrintHostType>(cfg).value_or(static_cast<PrintHostType>(0));
             if (cfg.has("printhost_apikey") && (host_type != htSimplyPrint))
-                apikey = cfg.opt_string("printhost_apikey");
+                apikey = ::orca::config::get<::orca::keys::printhost_apikey>(cfg).value_or(std::string{});
             print_btn_type = preset_bundle.is_bbl_vendor() ? MainFrame::PrintSelectType::ePrintPlate : MainFrame::PrintSelectType::eSendGcode;
         }
 
@@ -2512,7 +2520,7 @@ void Sidebar::update_all_preset_comboboxes()
 
     }
 
-    if (cfg.opt_bool("pellet_modded_printer")) {
+    if (::orca::config::get<::orca::keys::pellet_modded_printer>(cfg).value_or(false)) {
 		p->m_staticText_filament_settings->SetLabel(_L("Pellets"));
         p->m_filament_icon->SetBitmap_("pellets");
     } else {
@@ -2524,14 +2532,14 @@ void Sidebar::update_all_preset_comboboxes()
 
     //p->m_staticText_filament_settings->Update();
 
-    if (is_bbl_vendor || cfg.opt_bool("support_multi_bed_types")) {
+    if (is_bbl_vendor || ::orca::config::get<::orca::keys::support_multi_bed_types>(cfg).value_or(false)) {
         p->combo_printer_bed->Enable();
         // Orca: don't update bed type if loading project
         if (!p->plater->is_loading_project()) {
             bool has_changed = reset_bed_type_combox_choices();
             bool flag         = m_begin_sync_printer_status && !has_changed;
             if (!(flag)) {
-                auto str_bed_type = wxGetApp().app_config->get_printer_setting(wxGetApp().preset_bundle->printers.get_selected_preset_name(),
+                auto str_bed_type = wxGetApp().app_config->get_printer_setting(::orca::session().presets().raw_ptr()->printers.get_selected_preset_name(),
                                                                                "curr_bed_type");
                 if (!str_bed_type.empty()) {
                     int bed_type_value = atoi(str_bed_type.c_str());
@@ -2556,7 +2564,7 @@ void Sidebar::update_all_preset_comboboxes()
     }
 
     // ORCA Hide plate selector if not supported by printer
-    p->panel_printer_bed->Show(is_bbl_vendor || cfg.opt_bool("support_multi_bed_types"));
+    p->panel_printer_bed->Show(is_bbl_vendor || ::orca::config::get<::orca::keys::support_multi_bed_types>(cfg).value_or(false));
 
     // Update the print choosers to only contain the compatible presets, update the dirty flags.
     //BBS
@@ -2582,7 +2590,7 @@ void Sidebar::update_all_preset_comboboxes()
 
 void Sidebar::update_presets(Preset::Type preset_type)
 {
-    PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
+    PresetBundle &preset_bundle = *::orca::session().presets().raw_ptr();
     const auto print_tech = preset_bundle.printers.get_edited_preset().printer_technology();
 
     BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(": enter, preset_type %1%")%preset_type;
@@ -2646,12 +2654,12 @@ void Sidebar::update_presets(Preset::Type preset_type)
             printer_tab->on_preset_loaded();
         }
 
-        Preset& printer_preset = wxGetApp().preset_bundle->printers.get_edited_preset();
+        Preset& printer_preset = ::orca::session().presets().raw_ptr()->printers.get_edited_preset();
 
         bool isBBL = preset_bundle.is_bbl_vendor();
 
-        if (auto printer_structure_opt = printer_preset.config.option<ConfigOptionEnum<PrinterStructure>>("printer_structure")) {
-            wxGetApp().plater()->get_current_canvas3D()->get_arrange_settings().align_to_y_axis = (printer_structure_opt->value == PrinterStructure::psI3);
+        if (auto printer_structure_opt = ::orca::config::get_enum<::orca::keys::printer_structure, PrinterStructure>(printer_preset.config)) {
+            wxGetApp().plater()->get_current_canvas3D()->get_arrange_settings().align_to_y_axis = (*printer_structure_opt == PrinterStructure::psI3);
         }
         else
             wxGetApp().plater()->get_current_canvas3D()->get_arrange_settings().align_to_y_axis = false;
@@ -2661,8 +2669,8 @@ void Sidebar::update_presets(Preset::Type preset_type)
 
         bool is_dual_extruder = nozzle_diameter->size() == 2;
         p->layout_printer(preset_bundle.use_bbl_network(), isBBL && is_dual_extruder);
-        auto diameters = wxGetApp().preset_bundle->printers.diameters_of_selected_printer();
-        auto diameter = printer_preset.config.opt_string("printer_variant");
+        auto diameters = ::orca::session().presets().raw_ptr()->printers.diameters_of_selected_printer();
+        auto diameter = ::orca::config::get<::orca::keys::printer_variant>(printer_preset.config).value_or(std::string{});
         auto update_extruder_diameter = [&diameters, &diameter, &nozzle_diameter](int extruder_index,ExtruderGroup & extruder) {
             extruder.combo_diameter->Clear();
             int select = -1;
@@ -2686,7 +2694,7 @@ void Sidebar::update_presets(Preset::Type preset_type)
         };
         auto image_path = get_cur_select_bed_image();
         if (is_dual_extruder) {
-            std::string printer_type = printer_preset.get_printer_type(wxGetApp().preset_bundle);
+            std::string printer_type = printer_preset.get_printer_type(::orca::session().presets().raw_ptr());
             p->left_extruder->SetTitle(_L(DevPrinterConfigUtil::get_toolhead_display_name(printer_type, DEPUTY_EXTRUDER_ID, ToolHeadComponent::Nozzle, ToolHeadNameCase::TitleCase)));
             p->right_extruder->SetTitle(_L(DevPrinterConfigUtil::get_toolhead_display_name(printer_type, MAIN_EXTRUDER_ID, ToolHeadComponent::Nozzle, ToolHeadNameCase::TitleCase)));
             AMSCountPopupWindow::UpdateAMSCount(0, p->left_extruder);
@@ -2708,8 +2716,9 @@ void Sidebar::update_presets(Preset::Type preset_type)
             p->combo_nozzle_dia->SetSelection((*p->single_extruder).combo_diameter->GetSelection());
             
             // ORCA update nozzle type
-            const auto& full_config = wxGetApp().preset_bundle->full_config();
+            const auto& full_config = ::orca::session().presets().raw_ptr()->full_config();
             wxString nozzle_type = "-";
+            // TODO(orca-types): nullable surface not wired (ConfigOptionEnumsGenericNullable); option* captured + reused
             const ConfigOptionEnumsGenericNullable* cfg_nozzle_type = full_config.option<ConfigOptionEnumsGenericNullable>("nozzle_type");
             if(cfg_nozzle_type != nullptr){
                 std::vector<NozzleType> nozzle_types(cfg_nozzle_type->size());
@@ -2741,7 +2750,7 @@ void Sidebar::update_presets(Preset::Type preset_type)
     }
 
     // Synchronize config.ini with the current selections.
-    wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
+    ::orca::session().presets().raw_ptr()->export_selections(*wxGetApp().app_config);
 
     BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(": exit.");
 }
@@ -2749,7 +2758,7 @@ void Sidebar::update_presets(Preset::Type preset_type)
 //BBS
 void Sidebar::update_presets_from_to(Slic3r::Preset::Type preset_type, std::string from, std::string to)
 {
-    PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
+    PresetBundle &preset_bundle = *::orca::session().presets().raw_ptr();
 
     BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(": enter, preset_type %1%, from %2% to %3%")%preset_type %from %to;
 
@@ -2772,7 +2781,7 @@ void Sidebar::update_presets_from_to(Slic3r::Preset::Type preset_type, std::stri
     }
 
     // Synchronize config.ini with the current selections.
-    wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
+    ::orca::session().presets().raw_ptr()->export_selections(*wxGetApp().app_config);
 
     BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(": exit!");
 }
@@ -3204,19 +3213,19 @@ void Sidebar::delete_filament(size_t filament_id, int replace_filament_id) {
     if (filament_id > filament_count)
         return;
 
-    if (wxGetApp().preset_bundle->is_the_only_edited_filament(filament_id) || (filament_id == 0)) {
-        wxGetApp().get_tab(Preset::TYPE_FILAMENT)->select_preset(wxGetApp().preset_bundle->filament_presets[0], false, "", true);
+    if (::orca::session().presets().raw_ptr()->is_the_only_edited_filament(filament_id) || (filament_id == 0)) {
+        wxGetApp().get_tab(Preset::TYPE_FILAMENT)->select_preset(::orca::session().presets().raw_ptr()->filament_presets[0], false, "", true);
     }
 
     if (p->editing_filament == filament_id || p->editing_filament >= filament_count) {
         p->editing_filament = -1;
     }
 
-    wxGetApp().preset_bundle->update_num_filaments(filament_id);
+    ::orca::session().presets().raw_ptr()->update_num_filaments(filament_id);
     wxGetApp().plater()->get_partplate_list().on_filament_deleted(filament_count, filament_id);
     wxGetApp().plater()->on_filaments_delete(filament_count, filament_id, replace_filament_id > (int)filament_id ? (replace_filament_id - 1) : replace_filament_id);
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update();
-    wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
+    ::orca::session().presets().raw_ptr()->export_selections(*wxGetApp().app_config);
 
     wxGetApp().plater()->update();
 }
@@ -3240,11 +3249,11 @@ void Sidebar::add_custom_filament(wxColour new_col) {
 
     int         filament_count = p->combos_filament.size() + 1;
     std::string new_color      = new_col.GetAsString(wxC2S_HTML_SYNTAX).ToStdString();
-    wxGetApp().preset_bundle->set_num_filaments(filament_count, new_color);
+    ::orca::session().presets().raw_ptr()->set_num_filaments(filament_count, new_color);
     wxGetApp().plater()->get_partplate_list().on_filament_added(filament_count);
     wxGetApp().plater()->on_filament_count_change(filament_count);
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update();
-    wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
+    ::orca::session().presets().raw_ptr()->export_selections(*wxGetApp().app_config);
     auto_calc_flushing_volumes(filament_count - 1);
 }
 
@@ -3341,8 +3350,8 @@ std::map<int, DynamicPrintConfig> Sidebar::build_filament_ams_list(MachineObject
         tray_config.set_key_value("filament_exist", new ConfigOptionBools{tray.is_exists});
         tray_config.set_key_value("filament_slot_placeholder", new ConfigOptionBools{tray.is_slot_placeholder});
         std::optional<FilamentBaseInfo> info;
-        if (wxGetApp().preset_bundle) {
-            info = wxGetApp().preset_bundle->get_filament_by_filament_id(tray.setting_id);
+        if (::orca::session().presets().raw_ptr()) {
+            info = ::orca::session().presets().raw_ptr()->get_filament_by_filament_id(tray.setting_id);
         }
         tray_config.set_key_value("filament_is_support", new ConfigOptionBools{ info.has_value() ? info->is_support : false});
         for (int i = 0; i < tray.cols.size(); ++i) {
@@ -3396,7 +3405,7 @@ bool Sidebar::need_auto_sync_extruder_list_after_connect_priner(const MachineObj
         return false;
 
     std::string   machine_print_name = obj->get_show_printer_type();
-    PresetBundle *preset_bundle      = wxGetApp().preset_bundle;
+    PresetBundle *preset_bundle      = ::orca::session().presets().raw_ptr();
     std::string   target_model_id    = preset_bundle->printers.get_selected_preset().get_printer_type(preset_bundle);
     if (machine_print_name != target_model_id) {
         return false;
@@ -3461,11 +3470,11 @@ void Sidebar::load_ams_list(MachineObject* obj)
         device_change      = true;
     }
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": %1% items") % filament_ams_list.size();
-    if (wxGetApp().preset_bundle->filament_ams_list == filament_ams_list && !device_change)
+    if (::orca::session().presets().raw_ptr()->filament_ams_list == filament_ams_list && !device_change)
     {
         return;
     }
-    wxGetApp().preset_bundle->filament_ams_list = filament_ams_list;
+    ::orca::session().presets().raw_ptr()->filament_ams_list = filament_ams_list;
 
     for (auto c : p->combos_filament){
         c->update();
@@ -3486,7 +3495,7 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
         return;
     GUI::wxGetApp().sidebar().load_ams_list(obj);
 
-    auto & list = wxGetApp().preset_bundle->filament_ams_list;
+    auto & list = ::orca::session().presets().raw_ptr()->filament_ams_list;
     if (list.empty()) {
         auto printer_name = p->plater->get_selected_printer_name_in_combox();
         p->plater->pop_warning_and_go_to_device_page(printer_name, Plater::PrinterWarningType::NOT_CONNECTED, _L("Sync printer information"));
@@ -3495,9 +3504,9 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
     bool exist_at_list_one_filament =false;
     for (auto &cur : list) {
         auto temp_config    = cur.second;
-        auto filament_type  = temp_config.opt_string("filament_type", 0u);
-        auto filament_color = temp_config.opt_string("filament_colour", 0u);
-        if (!filament_type.empty() || temp_config.opt_bool("filament_exist", 0u)) {
+        auto filament_type  = ::orca::config::get_at<::orca::keys::filament_type>(temp_config, 0).value_or(std::string{});
+        auto filament_color = ::orca::config::get_at<::orca::keys::filament_colour>(temp_config, 0).value_or(std::string{});
+        if (!filament_type.empty() || temp_config.opt_bool("filament_exist", 0u)) { // TODO(orca-types): unknown key filament_exist (not in ConfigDef)
             exist_at_list_one_filament = true;
             break;
         }
@@ -3531,8 +3540,8 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
     if (m_sync_dlg->is_need_show()) {
         m_sync_dlg->deal_only_exist_ext_spool(obj);
         if (m_sync_dlg->is_dirty_filament()) {
-            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->select_preset(wxGetApp().preset_bundle->filament_presets[0], false, "", false, true);
-            wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
+            wxGetApp().get_tab(Preset::TYPE_FILAMENT)->select_preset(::orca::session().presets().raw_ptr()->filament_presets[0], false, "", false, true);
+            ::orca::session().presets().raw_ptr()->export_selections(*wxGetApp().app_config);
             dynamic_filament_list.update();
         }
         m_sync_dlg->set_check_dirty_fialment(false);
@@ -3551,7 +3560,7 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
     auto iter = list.begin();
     for (int i = 0; i < list.size(); ++i, ++iter) {
         auto & ams = iter->second;
-        auto filament_id = ams.opt_string("filament_id", 0u);
+        auto filament_id = ams.opt_string("filament_id", 0u); // TODO(orca-types): unknown key filament_id (not in ConfigDef)
         ams.set_key_value("filament_changed", new ConfigOptionBool{dlg_res == wxID_YES || list2[i] != filament_id});
         list2[i] = filament_id;
     }
@@ -3559,7 +3568,8 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
     // BBS:Record consumables information before synchronization
     std::vector<string> color_before_sync;
     std::vector<bool>   is_support_before;
-    DynamicPrintConfig& project_config = wxGetApp().preset_bundle->project_config;
+    DynamicPrintConfig& project_config = ::orca::session().presets().raw_ptr()->project_config;
+    // TODO(orca-types): manual migration — option* captured into local and reused (->values[i] in loop)
     ConfigOptionStrings* color_opt = project_config.option<ConfigOptionStrings>("filament_colour");
     for (int i = 0; i < p->combos_filament.size(); ++i) {
         is_support_before.push_back(is_support_filament(i));
@@ -3569,7 +3579,7 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
     std::vector<std::pair<DynamicPrintConfig *,std::string>> unknowns;
     auto enable_append  = wxGetApp().app_config->get_bool("enable_append_color_by_sync_ams");
     auto sync_color_only = wxGetApp().app_config->get("sync_ams_filament_mode") == "1";
-    auto n              = wxGetApp().preset_bundle->sync_ams_list(unknowns, !sync_result.direct_sync, sync_result.sync_maps, enable_append, merge_info, sync_color_only);
+    auto n              = ::orca::session().presets().raw_ptr()->sync_ams_list(unknowns, !sync_result.direct_sync, sync_result.sync_maps, enable_append, merge_info, sync_color_only);
     wxString detail;
     for (auto & uk : unknowns) {
         auto tray_name     = uk.first->opt_string("tray_name", 0u);
@@ -3584,8 +3594,8 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
         return;
     }
     // Replace unknown filament IDs with the resolved preset's filament_id
-    auto &filaments        = wxGetApp().preset_bundle->filaments;
-    auto &filament_presets = wxGetApp().preset_bundle->filament_presets;
+    auto &filaments        = ::orca::session().presets().raw_ptr()->filaments;
+    auto &filament_presets = ::orca::session().presets().raw_ptr()->filament_presets;
     for (size_t i = 0; i < list2.size() && i < filament_presets.size(); ++i) {
         if (list2[i] == UNKNOWN_FILAMENT_ID) {
             const Preset *resolved = filaments.find_preset(filament_presets[i]);
@@ -3629,8 +3639,8 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
     // For full sync, preset selection/list update may rebuild combo widgets.
     // For color-only, keep current presets untouched and refresh colors only.
     if (!sync_color_only) {
-        wxGetApp().get_tab(Preset::TYPE_FILAMENT)->select_preset(wxGetApp().preset_bundle->filament_presets[0]);
-        wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
+        wxGetApp().get_tab(Preset::TYPE_FILAMENT)->select_preset(::orca::session().presets().raw_ptr()->filament_presets[0]);
+        ::orca::session().presets().raw_ptr()->export_selections(*wxGetApp().app_config);
         update_dynamic_filament_list();
     } else {
         wxGetApp().plater()->update_filament_colors_in_full_config();
@@ -3649,11 +3659,11 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
     { // badge ams filament
         clear_combos_filament_badge();
         if (sync_result.direct_sync) {
-            auto& ams_list = wxGetApp().preset_bundle->filament_ams_list;
+            auto& ams_list = ::orca::session().presets().raw_ptr()->filament_ams_list;
             size_t tray_idx = 0;
             for (auto& entry : ams_list) {
                 if (tray_idx >= p->combos_filament.size()) break;
-                auto filament_id = entry.second.opt_string("filament_id", 0u);
+                auto filament_id = entry.second.opt_string("filament_id", 0u); // TODO(orca-types): unknown key filament_id (not in ConfigDef)
                 if (!filament_id.empty()) {
                     badge_combox_filament(p->combos_filament[tray_idx]);
                 }
@@ -3721,11 +3731,11 @@ void Sidebar::sync_ams_list(bool is_from_big_sync_btn)
 
 bool Sidebar::should_show_SEMM_buttons()
 {
-    PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
+    PresetBundle &preset_bundle = *::orca::session().presets().raw_ptr();
     bool is_bbl_vendor = preset_bundle.is_bbl_vendor();
     auto cfg = preset_bundle.printers.get_edited_preset().config;
 
-    return cfg.opt_bool("single_extruder_multi_material") || is_bbl_vendor;
+    return ::orca::config::get<::orca::keys::single_extruder_multi_material>(cfg).value_or(false) || is_bbl_vendor;
 }
 
 void Sidebar::show_SEMM_buttons()
@@ -3943,7 +3953,7 @@ static std::vector<Search::InputInfo> get_search_inputs(ConfigOptionMode mode)
     std::vector<Search::InputInfo> ret {};
 
     auto& tabs_list = wxGetApp().tabs_list;
-    auto print_tech = wxGetApp().preset_bundle->printers.get_selected_preset().printer_technology();
+    auto print_tech = ::orca::session().presets().raw_ptr()->printers.get_selected_preset().printer_technology();
     for (auto tab : tabs_list)
         if (tab->supports_printer_technology(print_tech))
             ret.emplace_back(Search::InputInfo {tab->get_config(), tab->type(), mode});
@@ -4052,7 +4062,7 @@ static std::map<std::string, std::string> printer_thumbnails = {};
 
 void Sidebar::update_printer_thumbnail()
 {
-    auto& preset_bundle = wxGetApp().preset_bundle;
+    auto* preset_bundle = ::orca::session().presets().raw_ptr();
     Preset & selected_preset = preset_bundle->printers.get_edited_preset();
     std::string printer_type    = selected_preset.get_current_printer_type(preset_bundle);
     if (printer_thumbnails.find(printer_type) != printer_thumbnails.end()) // Use known cache first
@@ -4070,7 +4080,7 @@ void Sidebar::update_printer_thumbnail()
         */
 
         // Orca: try to use the printer model cover as the thumbnail
-        const auto model_name = selected_preset.config.opt_string("printer_model");
+        const auto model_name = ::orca::config::get<::orca::keys::printer_model>(selected_preset.config).value_or(std::string{});
         std::string cover_file = model_name + "_cover.png";
         for (auto vendor_profile : preset_bundle->vendors) {
             for (auto vendor_model : vendor_profile.second.models) {
@@ -4099,7 +4109,8 @@ void Sidebar::auto_calc_flushing_volumes(const int filament_idx, const int extru
     std::vector<int> filament_indices;
     std::vector<int> extruder_indices;
 
-    auto& preset_bundle = wxGetApp().preset_bundle;
+    auto* preset_bundle = ::orca::session().presets().raw_ptr();
+    // TODO(orca-types): manual migration — option* captured into local and reused (null-check + ->size())
     auto filament_ptr = preset_bundle->project_config.option<ConfigOptionStrings>("filament_colour");
     int filament_count = filament_ptr ? filament_ptr->size() : 0;
     int extruder_count = preset_bundle->get_printer_extruder_count();
@@ -4126,7 +4137,7 @@ void Sidebar::auto_calc_flushing_volumes(const int filament_idx, const int extru
         }
     }
 
-    wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
+    ::orca::session().presets().raw_ptr()->export_selections(*wxGetApp().app_config);
     wxGetApp().plater()->update_project_dirty_from_presets();
     wxPostEvent(this, SimpleEvent(EVT_SCHEDULE_BACKGROUND_PROCESS, this));
     auto has_modify = is_flush_config_modified();
@@ -4137,16 +4148,17 @@ void Sidebar::auto_calc_flushing_volumes(const int filament_idx, const int extru
 
 void Sidebar::auto_calc_flushing_volumes_internal(const int modify_id, const int extruder_id)
 {
-    auto& preset_bundle = wxGetApp().preset_bundle;
+    auto* preset_bundle = ::orca::session().presets().raw_ptr();
     auto& project_config = preset_bundle->project_config;
-    const auto& full_config = wxGetApp().preset_bundle->full_config();
+    const auto& full_config = ::orca::session().presets().raw_ptr()->full_config();
     auto& ams_multi_color_filament = preset_bundle->ams_multi_color_filment;
     size_t extruder_nums = preset_bundle->get_printer_extruder_count();
-    int nozzle_flush_dataset = full_config.option<ConfigOptionIntsNullable>("nozzle_flush_dataset")->values[extruder_id];
-    std::vector<double> init_matrix = get_flush_volumes_matrix((project_config.option<ConfigOptionFloats>("flush_volumes_matrix"))->values, extruder_id, extruder_nums);
+    int nozzle_flush_dataset = ::orca::config::get_at<::orca::keys::nozzle_flush_dataset>(full_config, extruder_id).value_or(0);
+    std::vector<double> init_matrix = get_flush_volumes_matrix(::orca::config::get_vec<::orca::keys::flush_volumes_matrix>(project_config).value_or(std::vector<double>{}), extruder_id, extruder_nums);
 
     const std::vector<int>& min_flush_volumes = get_min_flush_volumes(full_config, extruder_id);
 
+    // TODO(orca-types): manual migration — option* captured into local and reused (null-check + ->get_at())
     const auto* flush_multi_opt = project_config.option<ConfigOptionFloats>("flush_multiplier");
     float flush_multiplier = flush_multi_opt ? (float)flush_multi_opt->get_at(extruder_id) : 1.f;
     std::vector<double> matrix = init_matrix;
@@ -4228,6 +4240,7 @@ void Sidebar::auto_calc_flushing_volumes_internal(const int modify_id, const int
             }
         }
     }
+    // TODO(orca-types): manual migration — ->values passed by non-const ref to set_flush_volumes_matrix (in-place mutation)
     set_flush_volumes_matrix((project_config.option<ConfigOptionFloats>("flush_volumes_matrix"))->values, matrix, extruder_id, extruder_nums);
 }
 
@@ -5226,7 +5239,7 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
         preview->get_wxglcanvas()->Bind(EVT_GLCANVAS_COLLAPSE_SIDEBAR, [this](SimpleEvent&) { this->q->collapse_sidebar(!this->q->is_sidebar_collapsed());  });
         preview->get_wxglcanvas()->Bind(EVT_CUSTOMEVT_TICKSCHANGED, [this](wxCommandEvent& event) {
             Type tick_event_type = (Type)event.GetInt();
-            Model& model = wxGetApp().plater()->model();
+            Model& model = ::orca::session().project().raw();
             //BBS: replace model custom gcode with current plate custom gcode
             model.plates_custom_gcodes[model.curr_plate_index] = preview->get_canvas3d()->get_gcode_viewer().get_layers_slider()->GetTicksValues();
 
@@ -5513,7 +5526,7 @@ void Plater::priv::select_view(const std::string& direction)
 
 const VendorProfile::PrinterModel *Plater::get_curr_printer_model()
 {
-    auto bundle = wxGetApp().preset_bundle;
+    auto bundle = ::orca::session().presets().raw_ptr();
     if (bundle) {
         const Preset *curr = &bundle->printers.get_selected_preset();
         if (curr) {
@@ -5554,9 +5567,8 @@ std::map<std::string, std::string> Plater::get_bed_texture_maps()
 
 bool Plater::get_enable_wrapping_detection()
 {
-   const DynamicPrintConfig & print_config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
-   const ConfigOptionBool *  wrapping_detection = print_config.option<ConfigOptionBool>("enable_wrapping_detection");
-   return  (wrapping_detection != nullptr) && wrapping_detection->value;
+   const DynamicPrintConfig & print_config = ::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+   return ::orca::config::get<::orca::keys::enable_wrapping_detection>(print_config).value_or(false);
 }
 
 wxColour Plater::get_next_color_for_filament()
@@ -5627,10 +5639,10 @@ void Plater::priv::select_view_3D(const std::string& name, bool no_slice)
     else if (name == "Preview") {
         BOOST_LOG_TRIVIAL(info) << "select preview";
         //BBS update extruder params and speed table before slicing
-        const Slic3r::DynamicPrintConfig& config = wxGetApp().preset_bundle->full_config();
+        const Slic3r::DynamicPrintConfig& config = ::orca::session().presets().raw_ptr()->full_config();
         auto& print = q->get_partplate_list().get_current_fff_print();
         auto print_config = print.config();
-        int numExtruders = wxGetApp().preset_bundle->filament_presets.size();
+        int numExtruders = ::orca::session().presets().raw_ptr()->filament_presets.size();
 
         Model::setExtruderParams(config, numExtruders);
         Model::setPrintSpeedTable(config, print_config);
@@ -6005,7 +6017,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                             int         filament_count = filament_size + 1;
                             wxColour    new_col        = Plater::get_next_color_for_filament();
                             std::string new_color      = new_col.GetAsString(wxC2S_HTML_SYNTAX).ToStdString();
-                            wxGetApp().preset_bundle->set_num_filaments(filament_count, new_color);
+                            ::orca::session().presets().raw_ptr()->set_num_filaments(filament_count, new_color);
                             wxGetApp().plater()->on_filament_count_change(filament_count);
                             ++filament_size;
                         }
@@ -6044,9 +6056,9 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                         // OrcaSlicer file (has OrcaSlicer tag) - compare file_version with SoftFever_VERSION
                         // Migration fix for OrcaSlicer 2.3.1-alpha sparse infill rotation template
                         if (load_config && (file_version < app_version) && file_version == Semver("2.3.1-alpha")) {
-                            if (!config_loaded.opt_string("sparse_infill_rotate_template").empty()) {
+                            if (!::orca::config::get<::orca::keys::sparse_infill_rotate_template>(config_loaded).value_or(std::string{}).empty()) {
                                 const auto _sparse_infill_pattern =
-                                    config_loaded.option<ConfigOptionEnum<InfillPattern>>("sparse_infill_pattern")->value;
+                                    ::orca::config::get_enum<::orca::keys::sparse_infill_pattern, InfillPattern>(config_loaded).value_or(static_cast<InfillPattern>(0));
                                 bool is_safe_to_rotate = _sparse_infill_pattern == ipRectilinear || _sparse_infill_pattern == ipLine ||
                                                          _sparse_infill_pattern == ipZigZag || _sparse_infill_pattern == ipCrossZag ||
                                                          _sparse_infill_pattern == ipLockedZag;
@@ -6061,7 +6073,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                                     dialog.SetButtonLabel(wxID_YES, _L("Yes"));
                                     dialog.SetButtonLabel(wxID_NO, _L("No"));
                                     if (dialog.ShowModal() == wxID_YES) {
-                                        config_loaded.opt_string("sparse_infill_rotate_template") = "";
+                                        ::orca::config::put<::orca::keys::sparse_infill_rotate_template>(config_loaded, "");
                                     }
                                 }
                             }
@@ -6099,9 +6111,9 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                             // Any version prior or equal to 2.3.2 is older than the current one, no version warnings needed.
                             // Still apply migration fixes for known old versions.
                             if (load_config && (file_version == Semver("2.3.1-alpha"))) {
-                                if (!config_loaded.opt_string("sparse_infill_rotate_template").empty()) {
+                                if (!::orca::config::get<::orca::keys::sparse_infill_rotate_template>(config_loaded).value_or(std::string{}).empty()) {
                                     const auto _sparse_infill_pattern =
-                                        config_loaded.option<ConfigOptionEnum<InfillPattern>>("sparse_infill_pattern")->value;
+                                        ::orca::config::get_enum<::orca::keys::sparse_infill_pattern, InfillPattern>(config_loaded).value_or(static_cast<InfillPattern>(0));
                                     bool is_safe_to_rotate = _sparse_infill_pattern == ipRectilinear || _sparse_infill_pattern == ipLine ||
                                                              _sparse_infill_pattern == ipZigZag || _sparse_infill_pattern == ipCrossZag ||
                                                              _sparse_infill_pattern == ipLockedZag;
@@ -6116,7 +6128,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                                         dialog.SetButtonLabel(wxID_YES, _L("Yes"));
                                         dialog.SetButtonLabel(wxID_NO, _L("No"));
                                         if (dialog.ShowModal() == wxID_YES) {
-                                            config_loaded.opt_string("sparse_infill_rotate_template") = "";
+                                            ::orca::config::put<::orca::keys::sparse_infill_rotate_template>(config_loaded, "");
                                         }
                                     }
                                 }
@@ -6216,7 +6228,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                                 //set the size back
                                 partplate_list.reset_size(current_width + Bed3D::Axes::DefaultTipRadius, current_depth + Bed3D::Axes::DefaultTipRadius, current_height, false);
                             }
-                            project_filament_count = config_loaded.option<ConfigOptionStrings>("filament_colour")->size();
+                            project_filament_count = ::orca::config::get_vec<::orca::keys::filament_colour>(config_loaded).value_or(std::vector<std::string>{}).size();
                             partplate_list.load_from_3mf_structure(plate_data, project_filament_count);
                             partplate_list.update_slice_context_to_current_plate(background_process);
                             this->preview->update_gcode_result(partplate_list.get_current_slice_result());
@@ -6232,7 +6244,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                     if ((project_presets.size() > 0) && load_config) {
                         // load project embedded presets
                         PresetsConfigSubstitutions preset_substitutions;
-                        PresetBundle &             preset_bundle = *wxGetApp().preset_bundle;
+                        PresetBundle &             preset_bundle = *::orca::session().presets().raw_ptr();
                         preset_substitutions                     = preset_bundle.load_project_embedded_presets(project_presets, ForwardCompatibilitySubstitutionRule::Enable);
                         if (!preset_substitutions.empty()) show_substitutions_info(preset_substitutions);
                     }
@@ -6288,7 +6300,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                 if (load_config) {
                     if (!config.empty()) {
                         Preset::normalize(config);
-                        PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+                        PresetBundle *preset_bundle = ::orca::session().presets().raw_ptr();
 
                         {
                             // BBS: modify the prime tower params for old version file
@@ -6297,7 +6309,9 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                                 double old_filament_prime_volume = 0.;
                                 int    filament_count            = 0;
                                 {
+                                    // TODO(orca-types): unknown key filament_prime_volume (not in ConfigDef); option* captured + reused
                                     ConfigOptionFloats  *filament_prime_volume_option = config.option<ConfigOptionFloats>("filament_prime_volume");
+                                    // TODO(orca-types): manual migration — option* captured into local and reused (create=true + ->values.size())
                                     ConfigOptionStrings *filament_colors_option       = config.option<ConfigOptionStrings>("filament_colour", true);
                                     filament_count                                    = filament_colors_option->values.size();
                                     if (filament_prime_volume_option) {
@@ -6308,18 +6322,18 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                                         }
                                     }
                                 }
-                                ConfigOptionEnum<WipeTowerWallType> *prime_tower_rib_wall_option = config.option<ConfigOptionEnum<WipeTowerWallType>>("wipe_tower_wall_type", true);
-                                prime_tower_rib_wall_option->value            = WipeTowerWallType::wtwRectangle;
+                                ::orca::config::put_enum<::orca::keys::wipe_tower_wall_type, WipeTowerWallType>(config, WipeTowerWallType::wtwRectangle);
 
-                                ConfigOptionPercent *prime_tower_infill_gap_option = config.option<ConfigOptionPercent>("prime_tower_infill_gap", true);
-                                prime_tower_infill_gap_option->value               = 100;
+                                ::orca::config::put<::orca::keys::prime_tower_infill_gap>(config, 100);
 
+                                // TODO(orca-types): manual migration — option* captured into local; ->values reference taken and resized/written in-place
                                 ConfigOptionInts *filament_adhesiveness_category_option = config.option<ConfigOptionInts>("filament_adhesiveness_category", true);
                                 std::vector<int> &filament_adhesiveness_category_values = filament_adhesiveness_category_option->values;
                                 filament_adhesiveness_category_values.resize(filament_count);
                                 for (int index = 0; index < filament_count; index++)
                                     filament_adhesiveness_category_values[index] = 100;
 
+                                // TODO(orca-types): manual migration — ->values reference taken and resized/written in-place
                                 std::vector<std::string> &diff_settings = config.option<ConfigOptionStrings>("different_settings_to_system", true)->values;
                                 diff_settings.resize(filament_count + 2);
 
@@ -6628,7 +6642,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                 if (project_presets.size() > 0) {
                     // load project embedded presets
                     PresetsConfigSubstitutions preset_substitutions;
-                    PresetBundle &             preset_bundle = *wxGetApp().preset_bundle;
+                    PresetBundle &             preset_bundle = *::orca::session().presets().raw_ptr();
                     preset_substitutions                     = preset_bundle.load_project_embedded_presets(project_presets, ForwardCompatibilitySubstitutionRule::Enable);
                     if (!preset_substitutions.empty()) show_substitutions_info(preset_substitutions);
 
@@ -6844,7 +6858,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
             MachineObject *obj = dev->get_selected_machine();
             if (obj && obj->is_info_ready()) {
                 if (obj->GetExtderSystem()->GetTotalExtderCount() > 0) {
-                    PresetBundle *preset_bundle  = wxGetApp().preset_bundle;
+                    PresetBundle *preset_bundle  = ::orca::session().presets().raw_ptr();
                     Preset       &printer_preset = preset_bundle->printers.get_selected_preset();
 
                     double              preset_nozzle_diameter = 0.4;
@@ -6858,7 +6872,7 @@ std::vector<size_t> Plater::priv::load_files(const std::vector<fs::path>& input_
                     if (printer_preset.get_current_printer_type(preset_bundle) != machine_type || !is_approx((float) preset_nozzle_diameter, machine_nozzle_diameter)) {
                         Preset *machine_preset = get_printer_preset(obj);
                         if (machine_preset != nullptr) {
-                            std::string printer_model = machine_preset->config.option<ConfigOptionString>("printer_model")->value;
+                            std::string printer_model = ::orca::config::get<::orca::keys::printer_model>(machine_preset->config).value_or(std::string{});
                             bool sync_printer_info = false;
                             if (!wxGetApp().app_config->has("sync_after_load_file_show_flag")) {
                                 wxString tips = from_u8((boost::format(_u8L("Connected printer is %s. It must match the project preset for printing.\n")) % printer_model).str());
@@ -7543,7 +7557,7 @@ void Plater::priv::reset(bool apply_presets_change)
 
     wxGetApp().sidebar().printer_combox()->clear_selected_dev_id();
     //BBS: reset all project embedded presets
-    wxGetApp().preset_bundle->reset_project_embedded_presets();
+    ::orca::session().presets().raw_ptr()->reset_project_embedded_presets();
     if (apply_presets_change)
         wxGetApp().apply_keeped_preset_modifications();
     else
@@ -7811,7 +7825,7 @@ std::vector<std::vector<DynamicPrintConfig>> Plater::priv::get_extruder_filament
     if (!obj_->is_multi_extruders())
         return filament_infos;
 
-    filament_infos = wxGetApp().preset_bundle->get_extruder_filament_info();
+    filament_infos = ::orca::session().presets().raw_ptr()->get_extruder_filament_info();
     return filament_infos;
 }
 
@@ -7952,7 +7966,7 @@ unsigned int Plater::priv::update_background_process(bool force_validation, bool
     background_process.fff_print()->set_check_multi_filaments_compatibility(wxGetApp().app_config->get("enable_high_low_temp_mixed_printing") == "false");
 
     Print::ApplyStatus invalidated;
-    const auto& preset_bundle = wxGetApp().preset_bundle;
+    const auto& preset_bundle = ::orca::session().presets().raw_ptr();
     if (preset_bundle->get_printer_extruder_count() > 1) {
         PartPlate* cur_plate = background_process.get_current_plate();
         std::vector<int> f_maps = cur_plate->get_real_filament_maps(preset_bundle->project_config);
@@ -9403,8 +9417,8 @@ void Plater::priv::on_select_bed_type(wxCommandEvent &evt)
     auto        select_bed_type = sidebar->get_cur_select_bed_type();
     std::string bed_type_name = print_config_def.get("curr_bed_type")->enum_values[(int)select_bed_type - 1];
 
-    PresetBundle& preset_bundle = *wxGetApp().preset_bundle;
-    DynamicPrintConfig& proj_config = wxGetApp().preset_bundle->project_config;
+    PresetBundle& preset_bundle = *::orca::session().presets().raw_ptr();
+    DynamicPrintConfig& proj_config = ::orca::session().presets().raw_ptr()->project_config;
     const t_config_enum_values* keys_map = print_config_def.get("curr_bed_type")->enum_keys_map;
 
     if (keys_map) {
@@ -9417,19 +9431,19 @@ void Plater::priv::on_select_bed_type(wxCommandEvent &evt)
         }
 
         if (new_bed_type != btCount) {
-            BedType old_bed_type = proj_config.opt_enum<BedType>("curr_bed_type");
+            BedType old_bed_type = ::orca::config::get_enum<::orca::keys::curr_bed_type, BedType>(proj_config).value_or(static_cast<BedType>(0));
             if (old_bed_type != new_bed_type) {
                 proj_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(new_bed_type));
 
                 wxGetApp().plater()->update_project_dirty_from_presets();
 
                 // update plater with new config
-                q->on_config_change(wxGetApp().preset_bundle->full_config());
+                q->on_config_change(::orca::session().presets().raw_ptr()->full_config());
 
                 // update app_config
                 AppConfig* app_config = wxGetApp().app_config;
                 app_config->set("curr_bed_type", std::to_string(int(new_bed_type)));
-                app_config->set_printer_setting(wxGetApp().preset_bundle->printers.get_selected_preset_name(),
+                app_config->set_printer_setting(::orca::session().presets().raw_ptr()->printers.get_selected_preset_name(),
                                                 "curr_bed_type", std::to_string(int(new_bed_type)));
 
                 //update slice status
@@ -9500,14 +9514,14 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
         preset_name = Preset::remove_suffix_modified(wx_stored_name.ToUTF8().data());
     } else {
         wxString wx_name = combo->GetString(selection);
-        preset_name = wxGetApp().preset_bundle->get_preset_name_by_alias(preset_type,
+        preset_name = ::orca::session().presets().raw_ptr()->get_preset_name_by_alias(preset_type,
             Preset::remove_suffix_modified(wx_name.ToUTF8().data()));
     }
 
     if (preset_type == Preset::TYPE_FILAMENT) {
-        wxGetApp().preset_bundle->set_filament_preset(idx, preset_name);
+        ::orca::session().presets().raw_ptr()->set_filament_preset(idx, preset_name);
         wxGetApp().plater()->update_project_dirty_from_presets();
-        wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
+        ::orca::session().presets().raw_ptr()->export_selections(*wxGetApp().app_config);
         sidebar->update_dynamic_filament_list();
         bool flag_is_change = is_support_filament(idx);
         if (flag != flag_is_change && wxGetApp().app_config->get("auto_calculate_flush") == "all") {
@@ -9525,14 +9539,14 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
     }
     else if (select_preset) {
         if (preset_type == Preset::TYPE_PRINTER) {
-            PhysicalPrinterCollection& physical_printers = wxGetApp().preset_bundle->physical_printers;
+            PhysicalPrinterCollection& physical_printers = ::orca::session().presets().raw_ptr()->physical_printers;
             if(combo->is_selected_physical_printer())
                 preset_name = physical_printers.get_selected_printer_preset_name();
             else
                 physical_printers.unselect_printer();
 
             if (combo->is_selected_printer_model()) {
-                auto preset = wxGetApp().preset_bundle->get_similar_printer_preset(preset_name, {});
+                auto preset = ::orca::session().presets().raw_ptr()->get_similar_printer_preset(preset_name, {});
                 if (preset == nullptr) {
                     MessageDialog dlg(this->sidebar, "", "");
                     dlg.ShowModal();
@@ -9540,13 +9554,13 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
                 preset->is_visible = true; // force visible
                 preset_name = preset->name;
             }
-            std::string old_preset_name = wxGetApp().preset_bundle->printers.get_edited_preset().name;
+            std::string old_preset_name = ::orca::session().presets().raw_ptr()->printers.get_edited_preset().name;
 
             update_objects_position_when_select_preset([this, &preset_type, &preset_name]() {
                 wxWindowUpdateLocker noUpdates2(sidebar->filament_panel());
                 wxGetApp().get_tab(preset_type)->select_preset(preset_name);
                 // update plater with new config
-                q->on_config_change(wxGetApp().preset_bundle->full_config());
+                q->on_config_change(::orca::session().presets().raw_ptr()->full_config());
             });
 
 
@@ -9558,10 +9572,10 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
             if (Slic3r::DeviceManager *dev = Slic3r::GUI::wxGetApp().getDeviceManager()) {
                 MachineObject *obj = dev->get_selected_machine();
                 if (obj && obj->is_multi_extruders()) {
-                    PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+                    PresetBundle *preset_bundle = ::orca::session().presets().raw_ptr();
                     Preset& cur_preset = preset_bundle->printers.get_edited_preset();
                     if (cur_preset.get_printer_type(preset_bundle) == obj->get_show_printer_type()) {
-                        double preset_nozzle_diameter = cur_preset.config.option<ConfigOptionFloats>("nozzle_diameter")->values[0];
+                        double preset_nozzle_diameter = ::orca::config::get_at<::orca::keys::nozzle_diameter>(cur_preset.config, 0).value_or(0.0);
                         bool   same_nozzle_diameter   = true;
 
                         const auto& extruders = obj->GetExtderSystem()->GetExtruders();
@@ -9585,7 +9599,7 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
     }
 
     // update plater with new config
-    q->on_config_change(wxGetApp().preset_bundle->full_config());
+    q->on_config_change(::orca::session().presets().raw_ptr()->full_config());
     if (preset_type == Preset::TYPE_PRINTER) {
     /* Settings list can be changed after printer preset changing, so
      * update all settings items for all item had it.
@@ -9618,7 +9632,7 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
         // Show shared profiles notification for the newly selected printer
         if (wxGetApp().app_config->get_bool("show_shared_profiles_notification"))
         {
-            std::string printer_name = wxGetApp().preset_bundle->printers.get_selected_preset_base().name;
+            std::string printer_name = ::orca::session().presets().raw_ptr()->printers.get_selected_preset_base().name;
             std::string encoded_name = Http::url_encode(printer_name);
 
             std::string cloud_url;
@@ -10122,10 +10136,10 @@ void Plater::priv::on_action_slice_plate(SimpleEvent&)
     if (q != nullptr) {
         BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << ":received slice plate event\n" ;
         //BBS update extruder params and speed table before slicing
-        const Slic3r::DynamicPrintConfig& config = wxGetApp().preset_bundle->full_config();
+        const Slic3r::DynamicPrintConfig& config = ::orca::session().presets().raw_ptr()->full_config();
         auto& print = q->get_partplate_list().get_current_fff_print();
         auto print_config = print.config();
-        int numExtruders = wxGetApp().preset_bundle->filament_presets.size();
+        int numExtruders = ::orca::session().presets().raw_ptr()->filament_presets.size();
 
         Model::setExtruderParams(config, numExtruders);
         Model::setPrintSpeedTable(config, print_config);
@@ -10141,10 +10155,10 @@ void Plater::priv::on_action_slice_all(SimpleEvent&)
     if (q != nullptr) {
         BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << ":received slice project event\n" ;
         //BBS update extruder params and speed table before slicing
-        const Slic3r::DynamicPrintConfig& config = wxGetApp().preset_bundle->full_config();
+        const Slic3r::DynamicPrintConfig& config = ::orca::session().presets().raw_ptr()->full_config();
         auto& print = q->get_partplate_list().get_current_fff_print();
         auto print_config = print.config();
-        int numExtruders = wxGetApp().preset_bundle->filament_presets.size();
+        int numExtruders = ::orca::session().presets().raw_ptr()->filament_presets.size();
 
         Model::setExtruderParams(config, numExtruders);
         Model::setPrintSpeedTable(config, print_config);
@@ -10194,7 +10208,7 @@ void Plater::priv::on_action_print_plate(SimpleEvent&)
         BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << ":received print plate event\n" ;
     }
 
-    PresetBundle& preset_bundle = *wxGetApp().preset_bundle;
+    PresetBundle& preset_bundle = *::orca::session().presets().raw_ptr();
     if (preset_bundle.use_bbl_network()) {
         // BBS
         if (!m_select_machine_dlg)
@@ -10240,7 +10254,7 @@ void Plater::priv::on_tab_selection_changing(wxBookCtrlEvent& e)
     sidebar_layout.show = new_sel == MainFrame::tp3DEditor || new_sel == MainFrame::tpPreview;
     update_sidebar();
     int old_sel = e.GetOldSelection();
-    if (wxGetApp().preset_bundle && wxGetApp().preset_bundle->use_bbl_device_tab() && new_sel == MainFrame::tpMonitor) {
+    if (::orca::session().presets().raw_ptr() && ::orca::session().presets().raw_ptr()->use_bbl_device_tab() && new_sel == MainFrame::tpMonitor) {
         if (!Slic3r::NetworkAgent::is_network_module_loaded()) {
             e.Veto();
             BOOST_LOG_TRIVIAL(info) << boost::format("skipped tab switch from %1% to %2%, lack of network plugins") % old_sel % new_sel;
@@ -10250,9 +10264,9 @@ void Plater::priv::on_tab_selection_changing(wxBookCtrlEvent& e)
             }
         }
     } else {
-        if (new_sel == MainFrame::tpMonitor && wxGetApp().preset_bundle != nullptr) {
-            auto     cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
-            wxString url = cfg.opt_string("print_host_webui").empty() ? cfg.opt_string("print_host") : cfg.opt_string("print_host_webui");
+        if (new_sel == MainFrame::tpMonitor && ::orca::session().presets().raw_ptr() != nullptr) {
+            auto     cfg = ::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
+            wxString url = ::orca::config::get<::orca::keys::print_host_webui>(cfg).value_or(std::string{}).empty() ? cfg.opt_string("print_host") : ::orca::config::get<::orca::keys::print_host_webui>(cfg).value_or(std::string{});
             if (main_frame->m_printer_view && url.empty()) {
                 // It's missing_connection page, reload so that we can replay the gif image
                 main_frame->m_printer_view->reload();
@@ -10295,7 +10309,7 @@ void Plater::priv::on_action_print_all(SimpleEvent&)
         BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << ":received print all event\n" ;
     }
 
-    PresetBundle& preset_bundle = *wxGetApp().preset_bundle;
+    PresetBundle& preset_bundle = *::orca::session().presets().raw_ptr();
     if (preset_bundle.use_bbl_network()) {
         // BBS
         if (!m_select_machine_dlg)
@@ -10418,7 +10432,7 @@ void Plater::priv::on_filament_color_changed(wxCommandEvent &event)
     //q->get_preview_canvas3D()->update_plate_thumbnails();
     int modify_id = event.GetInt();
 
-    auto& ams_multi_color_filment = wxGetApp().preset_bundle->ams_multi_color_filment;
+    auto& ams_multi_color_filment = ::orca::session().presets().raw_ptr()->ams_multi_color_filment;
     if (modify_id >= 0 && modify_id < ams_multi_color_filment.size())
         ams_multi_color_filment[modify_id].clear();
 
@@ -10666,6 +10680,7 @@ PlateBBoxData Plater::priv::generate_first_layer_bbox()
     bboxdata.bed_type       = bed_type_to_gcode_string(print->config().curr_bed_type.value);
     bboxdata.first_layer_time = partplate_list.get_curr_plate()->get_slice_result()->initial_layer_time;
     // get nozzle diameter
+    // TODO(orca-types): manual migration — option* captured into local + null-guard preserves prior default when absent
     auto opt_nozzle_diameters = print->config().option<ConfigOptionFloats>("nozzle_diameter");
     if (opt_nozzle_diameters != nullptr)
         bboxdata.nozzle_diameter = float(opt_nozzle_diameters->get_at(bboxdata.first_extruder));
@@ -10989,10 +11004,10 @@ bool Plater::priv::check_ams_status_impl(bool is_slice_all)
     if (q->is_gcode_3mf() || q->only_gcode_mode() || q->get_partplate_list().get_curr_plate()->get_objects().empty()) {
         return true;
     }
-    PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle *preset_bundle = ::orca::session().presets().raw_ptr();
     if (preset_bundle && preset_bundle->printers.get_edited_preset().get_printer_type(preset_bundle) == obj->get_show_printer_type()) {
         bool is_same_as_printer = true;
-        auto nozzle_volumes_values = preset_bundle->project_config.option<ConfigOptionEnumsGeneric>("nozzle_volume_type")->values;
+        auto nozzle_volumes_values = ::orca::session().presets().get_vec<::orca::keys::nozzle_volume_type>(::orca::ConfigScope::Project).value_or(std::vector<int>{});
         assert(obj->GetExtderSystem()->GetTotalExtderCount() == 2 && nozzle_volumes_values.size() == 2);
         if (obj->GetExtderSystem()->GetTotalExtderCount() == 2 && nozzle_volumes_values.size() == 2) {
             NozzleVolumeType right_nozzle_type = NozzleVolumeType(obj->GetExtderSystem()->GetNozzleFlowType(0) - 1);
@@ -11079,7 +11094,7 @@ bool Plater::priv::get_machine_sync_status()
     if (!obj)
         return false;
 
-    PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle *preset_bundle = ::orca::session().presets().raw_ptr();
     return preset_bundle && preset_bundle->printers.get_edited_preset().get_printer_type(preset_bundle) == obj->get_show_printer_type();
 }
 
@@ -11616,8 +11631,9 @@ void Plater::priv::take_snapshot(const std::string& snapshot_name, const UndoRed
     // This is a workaround until we refactor the Wipe Tower position / orientation to live solely inside the Model, not in the Print config.
     // BBS: add partplate logic
     if (this->printer_technology == ptFFF) {
-        const DynamicPrintConfig& config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
-        const DynamicPrintConfig& proj_cfg = wxGetApp().preset_bundle->project_config;
+        const DynamicPrintConfig& config = ::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+        const DynamicPrintConfig& proj_cfg = ::orca::session().presets().raw_ptr()->project_config;
+        // TODO(orca-types): manual migration — option* captured into local and reused (assert + ->values.size() + ->get_at())
         const ConfigOptionFloats* tower_x_opt = proj_cfg.option<ConfigOptionFloats>("wipe_tower_x");
         const ConfigOptionFloats* tower_y_opt = proj_cfg.option<ConfigOptionFloats>("wipe_tower_y");
         assert(tower_x_opt->values.size() == tower_y_opt->values.size());
@@ -11627,7 +11643,7 @@ void Plater::priv::take_snapshot(const std::string& snapshot_name, const UndoRed
             ModelWipeTower& tower = model.wipe_tower;
 
             tower.positions[plate_idx] = Vec2d(tower_x_opt->get_at(plate_idx), tower_y_opt->get_at(plate_idx));
-            tower.rotation = proj_cfg.opt_float("wipe_tower_rotation_angle");
+            tower.rotation = ::orca::config::get<::orca::keys::wipe_tower_rotation_angle>(proj_cfg).value_or(0.0);
         }
     }
     const GLGizmosManager& gizmos = get_current_canvas3D()->get_canvas_type() == GLCanvas3D::CanvasAssembleView ? assemble_view->get_canvas3d()->get_gizmos_manager() : view3D->get_canvas3d()->get_gizmos_manager();
@@ -11653,7 +11669,7 @@ void Plater::priv::take_snapshot(const std::string& snapshot_name, const UndoRed
     dirty_state.update_from_undo_redo_stack(m_undo_redo_stack_main.project_modified());
 
     // Save the last active preset name of a particular printer technology.
-    ((this->printer_technology == ptFFF) ? m_last_fff_printer_profile_name : m_last_sla_printer_profile_name) = wxGetApp().preset_bundle->printers.get_selected_preset_name();
+    ((this->printer_technology == ptFFF) ? m_last_fff_printer_profile_name : m_last_sla_printer_profile_name) = ::orca::session().presets().raw_ptr()->printers.get_selected_preset_name();
     BOOST_LOG_TRIVIAL(info) << "Undo / Redo snapshot taken: " << snapshot_name << ", Undo / Redo stack memory: " << Slic3r::format_memsize_MB(this->undo_redo_stack().memsize()) << log_memory_info();
 }
 
@@ -11721,13 +11737,14 @@ void Plater::priv::undo_redo_to(std::vector<UndoRedo::Snapshot>::const_iterator 
         //BBS do not support SLA
     }
     // Save the last active preset name of a particular printer technology.
-    ((this->printer_technology == ptFFF) ? m_last_fff_printer_profile_name : m_last_sla_printer_profile_name) = wxGetApp().preset_bundle->printers.get_selected_preset_name();
+    ((this->printer_technology == ptFFF) ? m_last_fff_printer_profile_name : m_last_sla_printer_profile_name) = ::orca::session().presets().raw_ptr()->printers.get_selected_preset_name();
     //FIXME updating the Wipe tower config values at the ModelWipeTower from the Print config.
     // This is a workaround until we refactor the Wipe Tower position / orientation to live solely inside the Model, not in the Print config.
     // BBS: add partplate logic
     if (this->printer_technology == ptFFF) {
-        const DynamicPrintConfig& config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
-        const DynamicPrintConfig& proj_cfg = wxGetApp().preset_bundle->project_config;
+        const DynamicPrintConfig& config = ::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+        const DynamicPrintConfig& proj_cfg = ::orca::session().presets().raw_ptr()->project_config;
+        // TODO(orca-types): manual migration — option* captured into local and reused (assert + ->values.size() + ->get_at())
         const ConfigOptionFloats* tower_x_opt = proj_cfg.option<ConfigOptionFloats>("wipe_tower_x");
         const ConfigOptionFloats* tower_y_opt = proj_cfg.option<ConfigOptionFloats>("wipe_tower_y");
         assert(tower_x_opt->values.size() == tower_y_opt->values.size());
@@ -11737,7 +11754,7 @@ void Plater::priv::undo_redo_to(std::vector<UndoRedo::Snapshot>::const_iterator 
             ModelWipeTower& tower = model.wipe_tower;
 
             tower.positions[plate_idx] = Vec2d(tower_x_opt->get_at(plate_idx), tower_y_opt->get_at(plate_idx));
-            tower.rotation = proj_cfg.opt_float("wipe_tower_rotation_angle");
+            tower.rotation = ::orca::config::get<::orca::keys::wipe_tower_rotation_angle>(proj_cfg).value_or(0.0);
         }
     }
     const int layer_range_idx = it_snapshot->snapshot_data.layer_range_idx;
@@ -11781,7 +11798,7 @@ void Plater::priv::undo_redo_to(std::vector<UndoRedo::Snapshot>::const_iterator 
             app_config->set("presets", PRESET_PRINTER_NAME, (new_printer_technology == ptFFF) ? m_last_fff_printer_profile_name : m_last_sla_printer_profile_name);
             //FIXME Why are we reloading the whole preset bundle here? Please document. This is fishy and it is unnecessarily expensive.
             // Anyways, don't report any config value substitutions, they have been already reported to the user at application start up.
-            wxGetApp().preset_bundle->load_presets(*app_config, ForwardCompatibilitySubstitutionRule::EnableSilent);
+            ::orca::session().presets().raw_ptr()->load_presets(*app_config, ForwardCompatibilitySubstitutionRule::EnableSilent);
             // load_current_presets() calls Tab::load_current_preset() -> TabPrint::update() -> Object_list::update_and_show_object_settings_item(),
             // but the Object list still keeps pointer to the old Model. Avoid a crash by removing selection first.
             this->sidebar->obj_list()->unselect_objects();
@@ -11793,8 +11810,9 @@ void Plater::priv::undo_redo_to(std::vector<UndoRedo::Snapshot>::const_iterator 
         // This is a workaround until we refactor the Wipe Tower position / orientation to live solely inside the Model, not in the Print config.
         // BBS: add partplate logic
         if (this->printer_technology == ptFFF) {
-            const DynamicPrintConfig& config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
-            const DynamicPrintConfig& proj_cfg = wxGetApp().preset_bundle->project_config;
+            const DynamicPrintConfig& config = ::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+            const DynamicPrintConfig& proj_cfg = ::orca::session().presets().raw_ptr()->project_config;
+            // TODO(orca-types): manual migration — mutable option* captured and mutated in-place (->clear/->resize/->set_at)
             ConfigOptionFloats* tower_x_opt = const_cast<ConfigOptionFloats*>(proj_cfg.option<ConfigOptionFloats>("wipe_tower_x"));
             ConfigOptionFloats* tower_y_opt = const_cast<ConfigOptionFloats*>(proj_cfg.option<ConfigOptionFloats>("wipe_tower_y"));
             // BBS: don't support wipe tower rotation
@@ -12141,7 +12159,7 @@ void Plater::load_project(wxString const& filename2,
 
     reset_project_dirty_initial_presets();
     update_project_dirty_from_presets();
-    wxGetApp().preset_bundle->export_selections(*wxGetApp().app_config);
+    ::orca::session().presets().raw_ptr()->export_selections(*wxGetApp().app_config);
 
     // if res is empty no data has been loaded
     if (!res.empty() && (load_restore || !(strategy & LoadStrategy::Silence))) {
@@ -12587,8 +12605,8 @@ void Plater::calib_pa(const Calib_Params& params)
     const auto calib_pa_name = wxString::Format(L"Pressure Advance Test");
     new_project(false, false, calib_pa_name);
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
-    auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    auto print_config = &::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    auto printer_config = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
     print_config->set_key_value("overhang_reverse", new ConfigOptionBool(false));
     print_config->set_key_value("precise_z_height", new ConfigOptionBool(false));
     printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
@@ -12613,9 +12631,9 @@ void Plater::_calib_pa_pattern(const Calib_Params& params)
     std::vector<double> accels{params.accelerations};
     std::vector<size_t> object_idxs{};
     /* Set common parameters */
-    auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
-    DynamicPrintConfig& print_config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+    auto printer_config = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
+    DynamicPrintConfig& print_config = ::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    auto filament_config = &::orca::session().presets().raw_ptr()->filaments.get_edited_preset().config;
     double nozzle_diameter = printer_config->option<ConfigOptionFloats>("nozzle_diameter")->get_at(0);
     filament_config->set_key_value("filament_retract_when_changing_layer", new ConfigOptionBoolsNullable{false});
     filament_config->set_key_value("filament_wipe", new ConfigOptionBoolsNullable{false});
@@ -12624,11 +12642,11 @@ void Plater::_calib_pa_pattern(const Calib_Params& params)
     printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
 
     //Orca: find acceleration to use in the test
-    auto accel = print_config.option<ConfigOptionFloat>("outer_wall_acceleration")->value; // get the outer wall acceleration
+    auto accel = ::orca::config::get<::orca::keys::outer_wall_acceleration>(print_config).value_or(0.0); // get the outer wall acceleration
     if (accel == 0) // if outer wall accel isnt defined, fall back to inner wall accel
-        accel = print_config.option<ConfigOptionFloat>("inner_wall_acceleration")->value;
+        accel = ::orca::config::get<::orca::keys::inner_wall_acceleration>(print_config).value_or(0.0);
     if (accel == 0) // if inner wall accel is not defined fall back to default accel
-        accel = print_config.option<ConfigOptionFloat>("default_acceleration")->value;
+        accel = ::orca::config::get<::orca::keys::default_acceleration>(print_config).value_or(0.0);
     // Orca: Set all accelerations except first layer, as the first layer accel doesnt affect the PA test since accel
     // is set to the travel accel before printing the pattern.
     if (accels.empty()) {
@@ -12644,12 +12662,12 @@ void Plater::_calib_pa_pattern(const Calib_Params& params)
     print_config.set_key_value( "print_sequence", new ConfigOptionEnum(PrintSequence::ByLayer));
     
     //Orca: find jerk value to use in the test
-    if(!has_junction_deviation(printer_config) && print_config.option<ConfigOptionFloat>("default_jerk")->value > 0){ // we have set a jerk value
-        auto jerk = print_config.option<ConfigOptionFloat>("outer_wall_jerk")->value; // get outer wall jerk
+    if(!has_junction_deviation(printer_config) && ::orca::config::get<::orca::keys::default_jerk>(print_config).value_or(0.0) > 0){ // we have set a jerk value
+        auto jerk = ::orca::config::get<::orca::keys::outer_wall_jerk>(print_config).value_or(0.0); // get outer wall jerk
         if (jerk == 0) // if outer wall jerk is not defined, get inner wall jerk
-            jerk = print_config.option<ConfigOptionFloat>("inner_wall_jerk")->value;
+            jerk = ::orca::config::get<::orca::keys::inner_wall_jerk>(print_config).value_or(0.0);
         if (jerk == 0) // if inner wall jerk is not defined, get the default jerk
-            jerk = print_config.option<ConfigOptionFloat>("default_jerk")->value;
+            jerk = ::orca::config::get<::orca::keys::default_jerk>(print_config).value_or(0.0);
         
         //Orca: Set jerk values. Again first layer jerk should not matter as it is reset to the travel jerk before the
         // first PA pattern is printed.
@@ -12694,7 +12712,7 @@ void Plater::_calib_pa_pattern(const Calib_Params& params)
     // Orca: Set the outer wall speed to the optimal speed for the test, cap it with max volumetric speed
     if (speeds.empty()) {
         double speed = CalibPressureAdvance::find_optimal_PA_speed(
-            wxGetApp().preset_bundle->full_config(),
+            ::orca::session().presets().raw_ptr()->full_config(),
             print_config.get_abs_value("line_width", nozzle_diameter),
             print_config.get_abs_value("layer_height"), 0, 0);
         print_config.set_key_value("outer_wall_speed", new ConfigOptionFloat(speed));
@@ -12716,8 +12734,8 @@ void Plater::_calib_pa_pattern(const Calib_Params& params)
     wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
     wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
 
-    const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
-    PresetBundle* preset_bundle = wxGetApp().preset_bundle;
+    const DynamicPrintConfig full_config = ::orca::session().presets().raw_ptr()->full_config();
+    PresetBundle* preset_bundle = ::orca::session().presets().raw_ptr();
     const bool is_bbl_machine = preset_bundle->is_bbl_vendor();
     auto cur_plate = get_partplate_list().get_plate(0);
 
@@ -12822,7 +12840,7 @@ void Plater::_calib_pa_pattern_gen_gcode()
      * We'll store gcode for all tests on a single plate here. Once the plate handling is done,
      * all the g-codes will be merged into a single one on per-layer basis */
     std::vector<CustomGCode::Info> mgc;
-    PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle *preset_bundle = ::orca::session().presets().raw_ptr();
 
     /* iterate over all cubes on current plate and generate gcode for them */
     for (auto obj : cur_plate->get_objects_on_this_plate()) {
@@ -12870,9 +12888,9 @@ void Plater::cut_horizontal(size_t obj_idx, size_t instance_idx, double z, Model
 void Plater::_calib_pa_tower(const Calib_Params& params) {
     add_model(false, Slic3r::resources_dir() + "/calib/pressure_advance/tower_with_seam.drc");
 
-    auto& print_config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
-    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+    auto& print_config = ::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    auto printer_config = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
+    auto filament_config = &::orca::session().presets().raw_ptr()->filaments.get_edited_preset().config;
 
     const double nozzle_diameter = printer_config->option<ConfigOptionFloats>("nozzle_diameter")->get_at(0);
 
@@ -12883,7 +12901,7 @@ void Plater::_calib_pa_tower(const Calib_Params& params) {
     auto& obj_cfg = model().objects[0]->config;
 
     obj_cfg.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
-    auto full_config = wxGetApp().preset_bundle->full_config();
+    auto full_config = ::orca::session().presets().raw_ptr()->full_config();
     auto wall_speed = CalibPressureAdvance::find_optimal_PA_speed(
         full_config, full_config.get_abs_value("line_width", nozzle_diameter),
         full_config.get_abs_value("layer_height"), 0, 0);
@@ -12940,9 +12958,9 @@ void Plater::_calib_pa_select_added_objects() {
 // ORCA: Add pattern parameter
 void adjust_settings_for_flowrate_calib(ModelObjectPtrs& objects, bool linear, int pass, InfillPattern pattern)
 {
-    auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto printerConfig = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
-    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+    auto print_config = &::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    auto printerConfig = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
+    auto filament_config = &::orca::session().presets().raw_ptr()->filaments.get_edited_preset().config;
 
     /// --- scale ---
     // model is created for a 0.4 nozzle, scale z with nozzle size.
@@ -13089,7 +13107,7 @@ void Plater::calib_flowrate(bool is_linear, int pass, InfillPattern pattern) {
     // ORCA: pass the pattern
     adjust_settings_for_flowrate_calib(model().objects, is_linear, pass, pattern);
     wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
-    auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    auto printer_config = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
     printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
 
     // Refresh object after scaling
@@ -13110,8 +13128,8 @@ void Plater::calib_temp(const Calib_Params& params) {
         return;
     
     add_model(false, Slic3r::resources_dir() + "/calib/temperature_tower/temperature_tower.drc");
-    auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
-    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+    auto printer_config = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
+    auto filament_config = &::orca::session().presets().raw_ptr()->filaments.get_edited_preset().config;
     auto start_temp = lround(params.start);
     const ConfigOptionFloats* nozzle_diameter_config = printer_config->option<ConfigOptionFloats>("nozzle_diameter");
     size_t nozzle_id = static_cast<size_t>(std::max(params.extruder_id, 0));
@@ -13164,7 +13182,7 @@ void Plater::calib_temp(const Calib_Params& params) {
     model().objects[0]->config.set_key_value("overhang_reverse", new ConfigOptionBool(false));
     model().objects[0]->config.set_key_value("precise_z_height", new ConfigOptionBool(false));
 
-    auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    auto print_config = &::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
     print_config->set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
     print_config->set_key_value("initial_layer_print_height", new ConfigOptionFloat(nozzle_diameter/2));
 
@@ -13187,9 +13205,9 @@ void Plater::calib_max_vol_speed(const Calib_Params& params)
         return;
     add_model(false, Slic3r::resources_dir() + "/calib/volumetric_speed/SpeedTestStructure.drc");
 
-    auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
-    auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    auto print_config = &::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    auto filament_config = &::orca::session().presets().raw_ptr()->filaments.get_edited_preset().config;
+    auto printer_config = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
     auto obj = model().objects[0];
     auto& obj_cfg = obj->config;
 
@@ -13263,9 +13281,9 @@ void Plater::calib_retraction(const Calib_Params& params)
 
     add_model(false, Slic3r::resources_dir() + "/calib/retraction/retraction_tower.drc");
 
-    auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
-    auto printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    auto print_config = &::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    auto filament_config = &::orca::session().presets().raw_ptr()->filaments.get_edited_preset().config;
+    auto printer_config = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
     auto obj = model().objects[0];
 
     print_config->set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
@@ -13320,9 +13338,9 @@ void Plater::calib_VFA(const Calib_Params& params)
         return;
 
     add_model(false, Slic3r::resources_dir() + "/calib/vfa/vfa.drc");
-    auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
-    auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    auto print_config = &::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    auto filament_config = &::orca::session().presets().raw_ptr()->filaments.get_edited_preset().config;
+    auto printer_config  = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
     printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool{false});
     printer_config->set_key_value("input_shaping_emit", new ConfigOptionBool{true});
     printer_config->set_key_value("input_shaping_type", new ConfigOptionEnum<InputShaperType>(InputShaperType::Disable));
@@ -13367,9 +13385,9 @@ void Plater::calib_input_shaping_freq(const Calib_Params& params)
         return;
 
     add_model(false, Slic3r::resources_dir() + (params.test_model < 1 ? "/calib/input_shaping/ringing_tower.drc" : "/calib/input_shaping/fast_tower_test.drc"));
-    auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
-    auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    auto print_config = &::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    auto filament_config = &::orca::session().presets().raw_ptr()->filaments.get_edited_preset().config;
+    auto printer_config  = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
     const auto gcode_flavor_option = printer_config->option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor");
 
     if (has_junction_deviation(printer_config)) {
@@ -13430,9 +13448,9 @@ void Plater::calib_input_shaping_damp(const Calib_Params& params)
         return;
 
     add_model(false, Slic3r::resources_dir() + (params.test_model < 1 ? "/calib/input_shaping/ringing_tower.drc" : "/calib/input_shaping/fast_tower_test.drc"));
-    auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
-    auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    auto print_config = &::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    auto filament_config = &::orca::session().presets().raw_ptr()->filaments.get_edited_preset().config;
+    auto printer_config  = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
     const auto gcode_flavor_option = printer_config->option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor");
 
     if (has_junction_deviation(printer_config)) {
@@ -13495,9 +13513,9 @@ void Plater::Calib_Cornering(const Calib_Params& params)
         ? "/calib/input_shaping/ringing_tower.drc"
         : (params.test_model == 1 ? "/calib/input_shaping/fast_tower_test.drc" : "/calib/cornering/SCV-V2.drc");
     add_model(false, Slic3r::resources_dir() + cornering_model_path);
-    auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
-    auto printer_config  = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    auto print_config = &::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    auto filament_config = &::orca::session().presets().raw_ptr()->filaments.get_edited_preset().config;
+    auto printer_config  = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
 
     if (has_junction_deviation(printer_config)) {
         printer_config->set_key_value("machine_max_junction_deviation", new ConfigOptionFloats{params.end});
@@ -13628,7 +13646,7 @@ void Plater::load_gcode(const wxString& filename)
     processor.init_filament_maps_and_nozzle_type_when_import_only_gcode();
     try
     {
-        GCodeProcessor::s_IsBBLPrinter = wxGetApp().preset_bundle->is_bbl_vendor();
+        GCodeProcessor::s_IsBBLPrinter = ::orca::session().presets().raw_ptr()->is_bbl_vendor();
         processor.process_file(filename.ToUTF8().data());
     }
     catch (const std::exception& ex)
@@ -13641,12 +13659,12 @@ void Plater::load_gcode(const wxString& filename)
 
     BedType bed_type = current_result->bed_type;
     if (bed_type != BedType::btCount) {
-        DynamicPrintConfig &proj_config = wxGetApp().preset_bundle->project_config;
+        DynamicPrintConfig &proj_config = ::orca::session().presets().raw_ptr()->project_config;
         proj_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(bed_type));
         on_bed_type_change(bed_type);
     }
 
-    current_print.apply(this->model(), wxGetApp().preset_bundle->full_config());
+    current_print.apply(this->model(), ::orca::session().presets().raw_ptr()->full_config());
 
     current_print.apply_config_for_render(processor.export_config_for_render());
 
@@ -14902,14 +14920,14 @@ void Plater::export_gcode(bool prefer_removable)
 
         try {
             json j;
-            auto printer_config = Slic3r::GUI::wxGetApp().preset_bundle->printers.get_edited_preset_with_vendor_profile().preset;
+            auto printer_config = ::orca::session().presets().raw_ptr()->printers.get_edited_preset_with_vendor_profile().preset;
             if (printer_config.is_system) {
                 j["printer_preset"] = printer_config.name;
             } else {
-                j["printer_preset"] = printer_config.config.opt_string("inherits");
+                j["printer_preset"] = ::orca::config::get<::orca::keys::inherits>(printer_config.config).value_or(std::string{});
             }
 
-            PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+            PresetBundle *preset_bundle = ::orca::session().presets().raw_ptr();
             if (preset_bundle) {
                 j["gcode_printer_model"] = preset_bundle->printers.get_edited_preset().get_printer_type(preset_bundle);
             }
@@ -15024,7 +15042,7 @@ Preset *get_printer_preset(const MachineObject *obj)
 
     Preset       *printer_preset = nullptr;
 
-    PresetBundle *preset_bundle  = wxGetApp().preset_bundle;
+    PresetBundle *preset_bundle  = ::orca::session().presets().raw_ptr();
     for (auto printer_it = preset_bundle->printers.begin(); printer_it != preset_bundle->printers.end(); printer_it++) {
         // only use system printer preset
         if (!printer_it->is_system)
@@ -15413,7 +15431,7 @@ void Plater::export_stl(bool extended, bool selection_only, bool multi_stls, Fil
 
     wxBusyCursor wait;
     bool export_config = true;
-    DynamicPrintConfig cfg = wxGetApp().preset_bundle->full_config_secure();
+    DynamicPrintConfig cfg = ::orca::session().presets().raw_ptr()->full_config_secure();
     bool full_pathnames = false;
     if (Slic3r::store_amf(path_u8.c_str(), &p->model, export_config ? &cfg : nullptr, full_pathnames)) {
         ; //store success
@@ -15535,7 +15553,7 @@ int Plater::export_3mf(const boost::filesystem::path& output_path, SaveStrategy 
     // modify model
     publish(p->model, strategy);
 
-    DynamicPrintConfig cfg = wxGetApp().preset_bundle->full_config_secure();
+    DynamicPrintConfig cfg = ::orca::session().presets().raw_ptr()->full_config_secure();
     const std::string path_u8 = into_u8(path);
     wxBusyCursor wait;
 
@@ -15631,7 +15649,7 @@ int Plater::export_3mf(const boost::filesystem::path& output_path, SaveStrategy 
     p->partplate_list.store_to_3mf_structure(plate_data_list, (strategy & SaveStrategy::WithGcode || strategy & SaveStrategy::WithSliceInfo), export_plate_idx);
 
     // BBS: backup
-    PresetBundle& preset_bundle = *wxGetApp().preset_bundle;
+    PresetBundle& preset_bundle = *::orca::session().presets().raw_ptr();
     std::vector<Preset*> project_presets = preset_bundle.get_current_project_embedded_presets();
 
     StoreParams store_params;
@@ -15937,39 +15955,39 @@ void Plater::record_slice_preset(std::string action)
     try
     {
         json j;
-        auto printer_preset = wxGetApp().preset_bundle->printers.get_edited_preset_with_vendor_profile().preset;
+        auto printer_preset = ::orca::session().presets().raw_ptr()->printers.get_edited_preset_with_vendor_profile().preset;
         if (printer_preset.is_system) {
             j["printer_preset_name"] = printer_preset.name;
         }
         else {
-            j["printer_preset_name"] = printer_preset.config.opt_string("inherits");
+            j["printer_preset_name"] = ::orca::config::get<::orca::keys::inherits>(printer_preset.config).value_or(std::string{});
         }
         const t_config_enum_values* keys_map = print_config_def.get("curr_bed_type")->enum_keys_map;
         if (keys_map) {
             for (auto item : *keys_map) {
-                if (item.second == wxGetApp().preset_bundle->project_config.opt_enum<BedType>("curr_bed_type")) {
+                if (item.second == ::orca::session().presets().raw_ptr()->project_config.opt_enum<BedType>("curr_bed_type")) {
                     j["curr_bed_type"] = item.first;
                     break;
                 }
             }
         }
-        auto filament_presets = wxGetApp().preset_bundle->filament_presets;
+        auto filament_presets = ::orca::session().presets().raw_ptr()->filament_presets;
         for (int i = 0; i < filament_presets.size(); ++i) {
-            auto filament_preset = wxGetApp().preset_bundle->filaments.find_preset(filament_presets[i]);
+            auto filament_preset = ::orca::session().presets().raw_ptr()->filaments.find_preset(filament_presets[i]);
             if (filament_preset->is_system) {
                 j["filament_preset_" + std::to_string(i)] = filament_preset->name;
             }
             else {
-                j["filament_preset_" + std::to_string(i)] = filament_preset->config.opt_string("inherits");
+                j["filament_preset_" + std::to_string(i)] = ::orca::config::get<::orca::keys::inherits>(filament_preset->config).value_or(std::string{});
             }
         }
 
-        Preset& print_preset = wxGetApp().preset_bundle->prints.get_edited_preset();
+        Preset& print_preset = ::orca::session().presets().raw_ptr()->prints.get_edited_preset();
         if (print_preset.is_system) {
             j["process_preset"] = print_preset.name;
         }
         else {
-            j["process_preset"] = print_preset.config.opt_string("inherits");
+            j["process_preset"] = ::orca::config::get<::orca::keys::inherits>(print_preset.config).value_or(std::string{});
         }
         j["support_type"] = ConfigOptionEnum<SupportType>::get_enum_names().at(print_preset.config.opt_enum<SupportType>("support_type"));
         j["sparse_infill_pattern"] = ConfigOptionEnum<InfillPattern>::get_enum_names().at(print_preset.config.opt_enum<InfillPattern>("sparse_infill_pattern"));
@@ -15982,7 +16000,7 @@ void Plater::record_slice_preset(std::string action)
             const DynamicPrintConfig& full_config = p->background_process.fff_print()->full_print_config();
             json values = json::array();
             if (full_config.has("different_settings_to_system")) {
-                std::vector<std::string> different_values = full_config.option<ConfigOptionStrings>("different_settings_to_system")->values;
+                std::vector<std::string> different_values = ::orca::config::get_vec<::orca::keys::different_settings_to_system>(full_config).value_or(std::vector<std::string>{});
                 for (auto& item : different_values) {
                     values.push_back(item);
                 }
@@ -16073,7 +16091,7 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
 {
     // if physical_printer is selected, send gcode for this printer
     // DynamicPrintConfig* physical_printer_config = wxGetApp().preset_bundle->physical_printers.get_selected_printer_config();
-    DynamicPrintConfig* physical_printer_config = &Slic3r::GUI::wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    DynamicPrintConfig* physical_printer_config = &::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
     if (! physical_printer_config || p->model.objects.empty())
         return;
 
@@ -16127,7 +16145,7 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
     }
 
     {
-        auto        preset_bundle = wxGetApp().preset_bundle;
+        auto        preset_bundle = ::orca::session().presets().raw_ptr();
         const auto  opt           = physical_printer_config->option<ConfigOptionEnum<PrintHostType>>("host_type");
         const auto  host_type     = opt != nullptr ? opt->value : htElegooLink;
         auto        config        = get_app_config();
@@ -16384,13 +16402,13 @@ bool Plater::search_string_getter(int idx, const char** label, const char** tool
 
 void Plater::on_filament_change(size_t filament_idx)
 {
-    auto& filament_presets = wxGetApp().preset_bundle->filament_presets;
+    auto& filament_presets = ::orca::session().presets().raw_ptr()->filament_presets;
     if (filament_idx >= filament_presets.size())
         return;
-    Slic3r::Preset* filament = wxGetApp().preset_bundle->filaments.find_preset(filament_presets[filament_idx]);
+    Slic3r::Preset* filament = ::orca::session().presets().raw_ptr()->filaments.find_preset(filament_presets[filament_idx]);
     if (filament == nullptr)
         return;
-    std::string filament_type = filament->config.option<ConfigOptionStrings>("filament_type")->values[0];
+    std::string filament_type = ::orca::config::get_at<::orca::keys::filament_type>(filament->config, 0).value_or(std::string{});
 }
 
 // BBS.
@@ -16496,8 +16514,9 @@ void Plater::on_bed_type_change(BedType bed_type)
 
 bool Plater::update_filament_colors_in_full_config()
 {
-    DynamicPrintConfig& project_config = wxGetApp().preset_bundle->project_config;
-    const auto& full_config = wxGetApp().preset_bundle->full_config();
+    DynamicPrintConfig& project_config = ::orca::session().presets().raw_ptr()->project_config;
+    const auto& full_config = ::orca::session().presets().raw_ptr()->full_config();
+    // TODO(orca-types): manual migration — option* captured into locals and reused (->values written through p->config below)
     ConfigOptionStrings* color_opt = project_config.option<ConfigOptionStrings>("filament_colour");
     const ConfigOptionStrings* type_opt = full_config.option<ConfigOptionStrings>("filament_type");
 
@@ -16510,10 +16529,10 @@ void Plater::config_change_notification(const DynamicPrintConfig &config, const 
 {
     GLCanvas3D* view3d_canvas = get_view3D_canvas3D();
     if (key == std::string("print_sequence")) {
-        auto seq_print = config.option<ConfigOptionEnum<PrintSequence>>("print_sequence");
+        auto seq_print = ::orca::config::get_enum<::orca::keys::print_sequence, PrintSequence>(config);
         if (seq_print && view3d_canvas && view3d_canvas->is_initialized() && view3d_canvas->is_rendering_enabled()) {
             NotificationManager* notify_manager = get_notification_manager();
-            if (seq_print->value == PrintSequence::ByObject) {
+            if (*seq_print == PrintSequence::ByObject) {
                 std::string info_text = _u8L("Print By Object: \nSuggest to use auto-arrange to avoid collisions when printing.");
                 notify_manager->bbl_show_seqprintinfo_notification(info_text);
             }
@@ -16532,6 +16551,7 @@ void Plater::on_config_change(const DynamicPrintConfig &config)
     t_config_option_keys diff_keys = p->config->diff(config);
 
     size_t old_nozzle_size = 1, new_nozzle_size = 1;
+    // TODO(orca-types): manual migration — option* captured into locals and reused (null-check + ->values.size())
     auto * opt_old = p->config->option<ConfigOptionFloats>("nozzle_diameter");
     auto * opt_new = config.option<ConfigOptionFloats>("nozzle_diameter");
     if (opt_old && opt_new) {
@@ -16635,8 +16655,8 @@ void Plater::on_config_change(const DynamicPrintConfig &config)
 
 void Plater::update_flush_volume_matrix(size_t old_nozzle_size, size_t new_nozzle_size)
 {
-    size_t nozzle_nums = wxGetApp().preset_bundle->get_printer_extruder_count();
-    Slic3r::DynamicPrintConfig *project_config = &wxGetApp().preset_bundle->project_config;
+    size_t nozzle_nums = ::orca::session().presets().raw_ptr()->get_printer_extruder_count();
+    Slic3r::DynamicPrintConfig *project_config = &::orca::session().presets().raw_ptr()->project_config;
 
     // Verify whether it is the first time start Studio
     size_t filament_nums = project_config->option<ConfigOptionStrings>("filament_colour")->values.size();
@@ -16678,7 +16698,7 @@ void Plater::update_flush_volume_matrix(size_t old_nozzle_size, size_t new_nozzl
 void Plater::set_bed_shape() const
 {
     std::string texture_filename;
-    auto bundle = wxGetApp().preset_bundle;
+    auto bundle = ::orca::session().presets().raw_ptr();
     if (bundle != nullptr) {
         const Preset* curr = &bundle->printers.get_selected_preset();
         if (curr->is_system)
@@ -16713,16 +16733,16 @@ void Plater::force_filament_colors_update()
 #if 0
     bool update_scheduled = false;
     DynamicPrintConfig* config = p->config;
-    const std::vector<std::string> filament_presets = wxGetApp().preset_bundle->filament_presets;
+    const std::vector<std::string> filament_presets = ::orca::session().presets().raw_ptr()->filament_presets;
     if (filament_presets.size() > 1 &&
         p->config->option<ConfigOptionStrings>("filament_colour")->values.size() == filament_presets.size())
     {
-        const PresetCollection& filaments = wxGetApp().preset_bundle->filaments;
+        const PresetCollection& filaments = ::orca::session().presets().raw_ptr()->filaments;
         std::vector<std::string> filament_colors;
         filament_colors.reserve(filament_presets.size());
 
         for (const std::string& filament_preset : filament_presets)
-            filament_colors.push_back(filaments.find_preset(filament_preset, true)->config.opt_string("filament_colour", (unsigned)0));
+            filament_colors.push_back(::orca::config::get_at<::orca::keys::filament_colour>(filaments.find_preset(filament_preset, true)->config, 0).value_or(std::string{}));
 
         if (config->option<ConfigOptionStrings>("filament_colour")->values != filament_colors) {
             config->option<ConfigOptionStrings>("filament_colour")->values = filament_colors;
@@ -16758,7 +16778,7 @@ std::vector<std::string> Plater::get_extruder_colors_from_plater_config(const GC
     if (wxGetApp().is_gcode_viewer() && result != nullptr)
         return result->extruder_colors;
     else {
-        const Slic3r::DynamicPrintConfig* config = &wxGetApp().preset_bundle->project_config;
+        const Slic3r::DynamicPrintConfig* config = &::orca::session().presets().raw_ptr()->project_config;
         std::vector<std::string> filament_colors;
         if (!config->has("filament_colour")) // in case of a SLA print
             return filament_colors;
@@ -16770,7 +16790,7 @@ std::vector<std::string> Plater::get_extruder_colors_from_plater_config(const GC
 
 std::vector<std::string> Plater::get_filament_colors_render_info() const
 {
-    const Slic3r::DynamicPrintConfig* config = &wxGetApp().preset_bundle->project_config;
+    const Slic3r::DynamicPrintConfig* config = &::orca::session().presets().raw_ptr()->project_config;
     std::vector<std::string> color_packs;
     if (!config->has("filament_multi_colour")) return color_packs;
 
@@ -16780,7 +16800,7 @@ std::vector<std::string> Plater::get_filament_colors_render_info() const
 
 std::vector<std::string> Plater::get_filament_color_render_type() const
 {
-    const Slic3r::DynamicPrintConfig *config = &wxGetApp().preset_bundle->project_config;
+    const Slic3r::DynamicPrintConfig *config = &::orca::session().presets().raw_ptr()->project_config;
     std::vector<std::string>          ctype;
     if (!config->has("filament_colour_type")) return ctype;
 
@@ -16815,8 +16835,8 @@ std::vector<std::string> Plater::get_colors_for_color_print(const GCodeProcessor
 
 void Plater::set_global_filament_map_mode(FilamentMapMode mode)
 {
-    auto& project_config = wxGetApp().preset_bundle->project_config;
-    auto mode_ptr = project_config.option<ConfigOptionEnum<FilamentMapMode>>("filament_map_mode");
+    auto& project_config = ::orca::session().presets().raw_ptr()->project_config;
+    auto mode_ptr = project_config.option<ConfigOptionEnum<FilamentMapMode>>("filament_map_mode"); // TODO(orca-types): enum surface (FilamentMapMode); option* captured + mutated
     FilamentMapMode old_mode = mode_ptr->value;
     if(mode != old_mode)
         on_filament_map_mode_change();
@@ -16825,21 +16845,21 @@ void Plater::set_global_filament_map_mode(FilamentMapMode mode)
 
 void Plater::set_global_filament_map(const std::vector<int>& filament_map)
 {
-    auto& project_config = wxGetApp().preset_bundle->project_config;
-    project_config.option<ConfigOptionInts>("filament_map")->values = filament_map;
+    auto& project_config = ::orca::session().presets().raw_ptr()->project_config;
+    ::orca::config::put_vec<::orca::keys::filament_map>(project_config, filament_map);
 }
 
 std::vector<int> Plater::get_global_filament_map() const
 {
-    auto& project_config = wxGetApp().preset_bundle->project_config;
-    return project_config.option<ConfigOptionInts>("filament_map")->values;
+    auto& project_config = ::orca::session().presets().raw_ptr()->project_config;
+    return ::orca::config::get_vec<::orca::keys::filament_map>(project_config).value_or(std::vector<int>{});
 }
 
 
 FilamentMapMode Plater::get_global_filament_map_mode() const
 {
-    auto& project_config = wxGetApp().preset_bundle->project_config;
-    return project_config.option<ConfigOptionEnum<FilamentMapMode>>("filament_map_mode")->value;
+    auto& project_config = ::orca::session().presets().raw_ptr()->project_config;
+    return ::orca::config::get_enum<::orca::keys::filament_map_mode, FilamentMapMode>(project_config).value_or(static_cast<FilamentMapMode>(0));
 }
 
 void Plater::on_filament_map_mode_change()
@@ -17128,8 +17148,8 @@ void Plater::optimize_rotation()
 void Plater::update_menus()         { p->menus.update(); }
 
 wxString Plater::get_selected_printer_name_in_combox() {
-    PresetBundle *        preset_bundle    = wxGetApp().preset_bundle;
-    std::string           printer_model    = preset_bundle->printers.get_selected_preset().config.option<ConfigOptionString>("printer_model")->value;
+    PresetBundle *        preset_bundle    = ::orca::session().presets().raw_ptr();
+    std::string           printer_model    = ::orca::config::get<::orca::keys::printer_model>(preset_bundle->printers.get_selected_preset().config).value_or(std::string{});
     return printer_model;
 }
 
@@ -17352,7 +17372,7 @@ void Plater::apply_background_progress()
     PartPlate* part_plate = p->partplate_list.get_curr_plate();
     int plate_index = p->partplate_list.get_curr_plate_index();
     bool result_valid = part_plate->is_slice_result_valid();
-    const auto& preset_bundle = wxGetApp().preset_bundle;
+    const auto& preset_bundle = ::orca::session().presets().raw_ptr();
     //always apply the current plate's print
     Print::ApplyStatus invalidated;
     if (preset_bundle->get_printer_extruder_count() > 1) {
@@ -17382,7 +17402,7 @@ int Plater::select_plate(int plate_index, bool need_slice)
         if (is_view3D_shown())
             wxGetApp().plater()->canvas3D()->render();
     }
-    const auto& preset_bundle = wxGetApp().preset_bundle;
+    const auto& preset_bundle = ::orca::session().presets().raw_ptr();
 
     if ((!ret) && (p->background_process.can_switch_print()))
     {
@@ -17561,13 +17581,13 @@ void Plater::validate_current_plate(bool& model_fits, bool& validate_error)
 
     PartPlate *cur_plate = wxGetApp().plater()->get_partplate_list().get_curr_plate();
     if (model_fits) {  // TPU check
-        bool  tpu_valid = cur_plate->check_tpu_printable_status(wxGetApp().preset_bundle->full_config(), wxGetApp().preset_bundle->get_used_tpu_filaments(cur_plate->get_extruders(true)));
+        bool  tpu_valid = cur_plate->check_tpu_printable_status(::orca::session().presets().raw_ptr()->full_config(), ::orca::session().presets().raw_ptr()->get_used_tpu_filaments(cur_plate->get_extruders(true)));
         model_fits &= tpu_valid;
     }
 
     if (model_fits) { // Filament printable check
         wxString filament_printable_error_msg;
-        bool filament_printable = cur_plate->check_filament_printable(wxGetApp().preset_bundle->full_config(), filament_printable_error_msg);
+        bool filament_printable = cur_plate->check_filament_printable(::orca::session().presets().raw_ptr()->full_config(), filament_printable_error_msg);
         model_fits &= filament_printable;
     }
 
@@ -17735,7 +17755,7 @@ void Plater::open_filament_map_setting_dialog(wxCommandEvent &evt)
     int value = evt.GetInt(); //1 means from gcode view
     bool need_slice = value ==1;  // If from gcode view, should slice
 
-    const auto& project_config = wxGetApp().preset_bundle->project_config;
+    const auto& project_config = ::orca::session().presets().raw_ptr()->project_config;
     auto filament_colors = config()->option<ConfigOptionStrings>("filament_colour")->values;
     auto filament_types = config()->option<ConfigOptionStrings>("filament_type")->values;
 
@@ -17818,7 +17838,7 @@ int Plater::select_plate_by_hover_id(int hover_id, bool right_click, bool isModi
             GCodeResult* gcode_result = nullptr;
             Print::ApplyStatus invalidated;
 
-            const auto& preset_bundle = wxGetApp().preset_bundle;
+            const auto& preset_bundle = ::orca::session().presets().raw_ptr();
 
             part_plate->get_print(&print, &gcode_result, NULL);
             //always apply the current plate's print
@@ -18163,7 +18183,7 @@ bool Plater::show_publish_dialog(bool show)
 
 void Plater::post_process_string_object_exception(StringObjectException &err)
 {
-    PresetBundle* preset_bundle = wxGetApp().preset_bundle;
+    PresetBundle* preset_bundle = ::orca::session().presets().raw_ptr();
     if (err.type == StringExceptionType::STRING_EXCEPT_FILAMENT_NOT_MATCH_BED_TYPE) {
         try {
             int extruder_id = atoi(err.params[2].c_str()) - 1;
@@ -18347,7 +18367,7 @@ bool Plater::can_paste_from_clipboard() const
     if (clipboard.is_empty() && p->sidebar->obj_list()->clipboard_is_empty())
         return false;
 
-    if ((wxGetApp().preset_bundle->printers.get_edited_preset().printer_technology() == ptSLA) && !clipboard.is_sla_compliant())
+    if ((::orca::session().presets().raw_ptr()->printers.get_edited_preset().printer_technology() == ptSLA) && !clipboard.is_sla_compliant())
         return false;
 
     Selection::EMode mode = clipboard.get_mode();
@@ -18377,7 +18397,7 @@ bool Plater::can_copy_to_clipboard() const
         return false;
 
     const Selection& selection = p->view3D->get_canvas3d()->get_selection();
-    if ((wxGetApp().preset_bundle->printers.get_edited_preset().printer_technology() == ptSLA) && !selection.is_sla_compliant())
+    if ((::orca::session().presets().raw_ptr()->printers.get_edited_preset().printer_technology() == ptSLA) && !selection.is_sla_compliant())
         return false;
 
     return true;

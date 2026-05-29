@@ -22,6 +22,7 @@
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/Tesselate.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "orca/Config.hpp"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -105,7 +106,7 @@ void GLVolume::SinkingContours::render()
 void GLVolume::SinkingContours::update()
 {
     const int object_idx = m_parent.object_idx();
-    const Model& model = GUI::wxGetApp().plater()->model();
+    const Model& model = ::orca::session().project().raw();
 
     if (0 <= object_idx && object_idx < int(model.objects.size()) && m_parent.is_sinking() && !m_parent.is_below_printbed()) {
         const BoundingBoxf3& box = m_parent.transformed_convex_hull_bounding_box();
@@ -419,7 +420,7 @@ BoundingBoxf3 GLVolume::transformed_convex_hull_bounding_box(const Transform3d &
 
 BoundingBoxf3 GLVolume::transformed_non_sinking_bounding_box(const Transform3d& trafo) const
 {
-    return GUI::wxGetApp().plater()->model().objects[object_idx()]->volumes[volume_idx()]->mesh().transformed_bounding_box(trafo, 0.0);
+    return ::orca::session().project().raw().objects[object_idx()]->volumes[volume_idx()]->mesh().transformed_bounding_box(trafo, 0.0);
 }
 
 const BoundingBoxf3& GLVolume::transformed_non_sinking_bounding_box() const
@@ -663,7 +664,7 @@ bool GLVolume::is_sla_pad() const { return this->composite_id.volume_id == -int(
 
 bool GLVolume::is_sinking() const
 {
-    if (is_modifier || GUI::wxGetApp().preset_bundle->printers.get_edited_preset().printer_technology() == ptSLA)
+    if (is_modifier || ::orca::session().presets().raw_ptr()->printers.get_edited_preset().printer_technology() == ptSLA)
         return false;
     const BoundingBoxf3& box = transformed_convex_hull_bounding_box();
     return box.min.z() < SINKING_Z_THRESHOLD && box.max.z() >= SINKING_Z_THRESHOLD;
@@ -980,9 +981,9 @@ GLVolumeWithIdAndZList volumes_to_render(const GLVolumePtrs& volumes, GLVolumeCo
 
 int GLVolumeCollection::get_selection_support_threshold_angle(bool &enable_support) const
 {
-    const DynamicPrintConfig& glb_cfg        = GUI::wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    enable_support =  glb_cfg.opt_bool("enable_support");
-    int support_threshold_angle =  glb_cfg.opt_int("support_threshold_angle");
+    const DynamicPrintConfig& glb_cfg        = ::orca::session().presets().raw_ptr()->prints.get_edited_preset().config;
+    enable_support =  ::orca::config::get<::orca::keys::enable_support>(glb_cfg).value_or(false);
+    int support_threshold_angle =  ::orca::config::get<::orca::keys::support_threshold_angle>(glb_cfg).value_or(0);
     return  support_threshold_angle ;
 }
 
@@ -1185,7 +1186,7 @@ bool GLVolumeCollection::check_outside_state(const BuildVolume &build_volume, Mo
         return false;
     }
 
-    const Model&        model              = GUI::wxGetApp().plater()->model();
+    const Model&        model              = ::orca::session().project().raw();
     auto                volume_below       = [](GLVolume& volume) -> bool
         { return volume.object_idx() != -1 && volume.volume_idx() != -1 && volume.is_below_printbed(); };
     // Volume is partially below the print bed, thus a pre-calculated convex hull cannot be used.
@@ -1334,7 +1335,7 @@ bool GLVolumeCollection::check_outside_state(const BuildVolume &build_volume, Mo
     //check per-object error for extruder areas
     if (object_results && (extruder_count > 1))
     {
-        const auto& project_config = Slic3r::GUI::wxGetApp().preset_bundle->project_config;
+        const auto& project_config = ::orca::session().presets().raw_ptr()->project_config;
         object_results->mode = curr_plate->get_real_filament_map_mode(project_config);
         if (object_results->mode < FilamentMapMode::fmmManual)
         {
@@ -1397,7 +1398,7 @@ bool GLVolumeCollection::check_outside_state(const BuildVolume &build_volume, Mo
         else
         {
             std::set<int> conflict_filaments_set;
-            const auto& project_config = Slic3r::GUI::wxGetApp().preset_bundle->project_config;
+            const auto& project_config = ::orca::session().presets().raw_ptr()->project_config;
             std::vector<int> filament_maps = curr_plate->get_real_filament_maps(project_config);
             for (auto& object_map: objects_unprintable_filaments)
             {

@@ -27,6 +27,7 @@
 #include <sstream>
 
 #include <string>
+#include <wx/app.h>
 #include <wx/filename.h>
 #include <wx/filefn.h>
 #include <wx/secretstore.h>
@@ -2201,6 +2202,15 @@ bool OrcaCloudServiceAgent::http_post_auth(const std::string& path, const std::s
 void OrcaCloudServiceAgent::compute_fallback_path()
 {
     if (!refresh_fallback_path.empty()) return;
+    // wxStandardPaths::GetUserDataDir() dereferences wxTheApp via GetAppName(),
+    // which is null in non-GUI contexts (unit tests, headless/CLI use). Guard
+    // against that with a wx-free temp path so the agent can be constructed
+    // without a running wxApp.
+    if (wxTheApp == nullptr) {
+        refresh_fallback_path =
+            (boost::filesystem::temp_directory_path() / "orca_refresh_token.sec").string();
+        return;
+    }
     wxFileName fallback(wxStandardPaths::Get().GetUserDataDir(), "orca_refresh_token.sec");
     fallback.Normalize();
     refresh_fallback_path = fallback.GetFullPath().ToStdString();

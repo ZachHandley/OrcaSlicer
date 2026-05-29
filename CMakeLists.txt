@@ -875,6 +875,16 @@ endfunction()
 # libslic3r, OrcaSlicer GUI and the OrcaSlicer executable.
 add_subdirectory(deps_src)
 add_subdirectory(src)
+
+# Public name for the engine shared library. The underlying target is libslic3r
+# (defined in src/libslic3r/CMakeLists.txt) with OUTPUT_NAME=orca-engine, so the
+# shipped file is liborca-engine.so. The alias lets engine consumers and
+# Phase 0.4 rewriter output refer to the canonical orca-engine name. Declared
+# before add_subdirectory(engine) so engine targets (e.g. the CLI) can link it.
+add_library(orca-engine ALIAS libslic3r)
+
+add_subdirectory(engine)
+
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT OrcaSlicer_app_gui)
 
 add_dependencies(gettext_make_pot hintsToPot)

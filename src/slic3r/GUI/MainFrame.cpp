@@ -24,6 +24,8 @@
 #include "libslic3r/SLAPrint.hpp"
 #include "libslic3r/PresetBundle.hpp"
 
+#include "orca/Config.hpp"
+
 #include "Tab.hpp"
 #include "ProgressStatusBar.hpp"
 #include "3DScene.hpp"
@@ -707,7 +709,7 @@ DPIFrame(NULL, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, BORDERLESS_FRAME_
             m_print_enable = get_enable_print_status();
             m_print_btn->Enable(m_print_enable);
             if (m_print_enable) {
-                if (wxGetApp().preset_bundle->use_bbl_network())
+                if (::orca::session().presets().raw_ptr()->use_bbl_network())
                     wxPostEvent(m_plater, SimpleEvent(EVT_GLTOOLBAR_PRINT_PLATE));
                 else
                     wxPostEvent(m_plater, SimpleEvent(EVT_GLTOOLBAR_SEND_GCODE));
@@ -1321,6 +1323,11 @@ void MainFrame::init_tabpanel() {
 
     wxGetApp().plater_ = m_plater;
 
+    // Phase 0.4b — hand the Plater-owned Model to the engine Session so
+    // Transform B's `::orca::session().project().raw()` call sites resolve.
+    // Phase 1 collapses ownership into Project; for now Plater stays the owner.
+    ::orca::session().attach_model(&m_plater->model());
+
     create_preset_tabs();
 
         //BBS add pages
@@ -1354,14 +1361,15 @@ void MainFrame::init_tabpanel() {
 
     if (m_plater) {
         // load initial config
-        auto full_config = wxGetApp().preset_bundle->full_config();
+        auto full_config = ::orca::session().presets().raw_ptr()->full_config();
         m_plater->on_config_change(full_config);
 
         // Show a correct number of filament fields.
         // nozzle_diameter is undefined when SLA printer is selected
         // BBS
         if (full_config.has("filament_colour")) {
-            m_plater->on_filament_count_change(full_config.option<ConfigOptionStrings>("filament_colour")->values.size());
+            auto fc = ::orca::config::get_vec<::orca::keys::filament_colour>(full_config);
+            m_plater->on_filament_count_change(fc ? fc->size() : 0);
         }
     }
 }
@@ -1732,11 +1740,11 @@ bool MainFrame::can_send_gcode() const
 {
     if (m_plater && !m_plater->model().objects.empty())
     {
-        auto cfg = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+        auto cfg = ::orca::session().presets().raw_ptr()->printers.get_edited_preset().config;
 
-        const auto *print_host_opt = cfg.option<ConfigOptionString>("print_host");
-        if (! print_host_opt) return false;
-        else return !print_host_opt->value.empty();
+        auto print_host_val = ::orca::config::get<::orca::keys::print_host>(cfg);
+        if (!print_host_val) return false;
+        else return !print_host_val->empty();
     }
     return true;
 }
@@ -1904,7 +1912,7 @@ wxBoxSizer* MainFrame::create_side_tools()
 
             auto curr_plate = m_plater->get_partplate_list().get_curr_plate();
             #ifdef __linux__
-                PresetBundle* preset = wxGetApp().preset_bundle;
+                PresetBundle* preset = ::orca::session().presets().raw_ptr();
                 bool force_show_fila_group_dlg        = (preset && preset->is_bbl_vendor() && preset->get_printer_extruder_count() == 2);
                 slice = try_pop_up_before_slice(m_slice_select == eSliceAll, m_plater, curr_plate, force_show_fila_group_dlg);
             #else
@@ -1997,8 +2005,8 @@ wxBoxSizer* MainFrame::create_side_tools()
         {
             SidePopup* p = new SidePopup(this);
 
-            if (wxGetApp().preset_bundle
-                && !wxGetApp().preset_bundle->is_bbl_vendor()) {
+            if (::orca::session().presets().raw_ptr()
+                && !::orca::session().presets().raw_ptr()->is_bbl_vendor()) {
                 // ThirdParty Buttons
                 SideButton* export_gcode_btn = new SideButton(p, _L("Export G-code file"), "");
                 export_gcode_btn->SetCornerRadius(0);
@@ -2109,7 +2117,7 @@ wxBoxSizer* MainFrame::create_side_tools()
                 bool support_send = true;
                 bool support_print_all = true;
 
-                const auto preset_bundle = wxGetApp().preset_bundle;
+                const auto preset_bundle = ::orca::session().presets().raw_ptr();
                 if (preset_bundle) {
                     if (preset_bundle->use_bbl_network()) {
                         // BBL network support everything
@@ -2117,7 +2125,7 @@ wxBoxSizer* MainFrame::create_side_tools()
                         support_send = false; // All 3rd print hosts do not have the send options
 
                         auto cfg = preset_bundle->printers.get_edited_preset().config;
-                        const auto host_type = cfg.option<ConfigOptionEnum<PrintHostType>>("host_type")->value;
+                        const auto host_type = ::orca::config::get_enum<::orca::keys::host_type, PrintHostType>(cfg).value_or(static_cast<PrintHostType>(0));
 
                         // Only simply print support uploading all plates
                         support_print_all = host_type == PrintHostType::htSimplyPrint;
@@ -3672,7 +3680,7 @@ void MainFrame::export_config()
         // Export the config bundle.
         wxGetApp().app_config->update_config_dir(into_u8(path));
         try {
-            auto files = wxGetApp().preset_bundle->export_current_configs(into_u8(path), [this](std::string const & name) {
+            auto files = ::orca::session().presets().raw_ptr()->export_current_configs(into_u8(path), [this](std::string const & name) {
                     ConfigsOverwriteConfirmDialog dlg(this, from_u8(name), true);
                     int res = dlg.ShowModal();
                     int ids[]{wxID_NO, wxID_YES, wxID_NOTOALL, wxID_YESTOALL};
@@ -3709,7 +3717,7 @@ void MainFrame::load_config_file()
         m_last_config = file;
     }
     bool update = false;
-    wxGetApp().preset_bundle->import_presets(cfiles, [this](std::string const & name) {
+    ::orca::session().presets().raw_ptr()->import_presets(cfiles, [this](std::string const & name) {
             ConfigsOverwriteConfirmDialog dlg(this, from_u8(name), false);
             int           res = dlg.ShowModal();
             int           ids[]{wxID_NO, wxID_YES, wxID_NOTOALL, wxID_YESTOALL};
@@ -3726,7 +3734,7 @@ void MainFrame::load_config_file()
             BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << " user is: " << agent->get_user_id();
         }
     }
-    wxGetApp().preset_bundle->update_compatible(PresetSelectCompatibleType::Always);
+    ::orca::session().presets().raw_ptr()->update_compatible(PresetSelectCompatibleType::Always);
     update_side_preset_ui();
     auto msg = wxString::Format(_L_PLURAL("There is %d config imported. (Only non-system and compatible configs)",
         "There are %d configs imported. (Only non-system and compatible configs)", cfiles.size()), cfiles.size());
@@ -3741,7 +3749,7 @@ void MainFrame::load_config_file()
 bool MainFrame::load_config_file(const std::string &path)
 {
     try {
-        ConfigSubstitutions config_substitutions = wxGetApp().preset_bundle->load_config_file(path, ForwardCompatibilitySubstitutionRule::Enable);
+        ConfigSubstitutions config_substitutions = ::orca::session().presets().raw_ptr()->load_config_file(path, ForwardCompatibilitySubstitutionRule::Enable);
         if (!config_substitutions.empty())
             show_substitutions_info(config_substitutions, path);
     } catch (const std::exception &ex) {
@@ -3822,10 +3830,10 @@ bool MainFrame::load_config_file(const std::string &path)
 // Also update the plater with the new presets.
 void MainFrame::load_config(const DynamicPrintConfig& config)
 {
-	PrinterTechnology printer_technology = wxGetApp().preset_bundle->printers.get_edited_preset().printer_technology();
-	const auto       *opt_printer_technology = config.option<ConfigOptionEnum<PrinterTechnology>>("printer_technology");
-	if (opt_printer_technology != nullptr && opt_printer_technology->value != printer_technology) {
-		printer_technology = opt_printer_technology->value;
+	PrinterTechnology printer_technology = ::orca::session().presets().raw_ptr()->printers.get_edited_preset().printer_technology();
+	const auto        opt_printer_technology = ::orca::config::get_enum<::orca::keys::printer_technology, PrinterTechnology>(config);
+	if (opt_printer_technology.has_value() && opt_printer_technology.value() != printer_technology) {
+		printer_technology = opt_printer_technology.value();
 		this->plater()->set_printer_technology(printer_technology);
 	}
 #if 0
@@ -4192,16 +4200,16 @@ void MainFrame::load_printer_url(wxString url, wxString apikey)
 
 void MainFrame::load_printer_url()
 {
-    PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
+    PresetBundle &preset_bundle = *::orca::session().presets().raw_ptr();
     if (preset_bundle.use_bbl_device_tab())
         return;
 
     auto     cfg = preset_bundle.printers.get_edited_preset().config;
     wxString url = from_u8(PrintHost::get_print_host_webui(&cfg));
     wxString apikey;
-    const auto host_type = cfg.option<ConfigOptionEnum<PrintHostType>>("host_type")->value;
+    const auto host_type = ::orca::config::get_enum<::orca::keys::host_type, PrintHostType>(cfg).value_or(static_cast<PrintHostType>(0));
     if (cfg.has("printhost_apikey") && (host_type == htPrusaLink || host_type == htPrusaConnect))
-        apikey = cfg.opt_string("printhost_apikey");
+        apikey = ::orca::config::get<::orca::keys::printhost_apikey>(cfg).value_or(std::string{});
     if (!url.empty()) {
         load_printer_url(url, apikey);
     }

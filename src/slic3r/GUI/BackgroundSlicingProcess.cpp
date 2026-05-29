@@ -24,6 +24,8 @@
 #include "libslic3r/Thread.hpp"
 #include "libslic3r/libslic3r.h"
 
+#include "orca/Config.hpp"
+
 #include <cassert>
 #include <stdexcept>
 #include <cctype>
@@ -195,7 +197,7 @@ std::string BackgroundSlicingProcess::output_filepath_for_project(const boost::f
 void BackgroundSlicingProcess::process_fff()
 {
     assert(m_print == m_fff_print);
-    PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
+    PresetBundle &preset_bundle = *::orca::session().presets().raw_ptr();
     m_fff_print->is_BBL_printer() = preset_bundle.is_bbl_vendor();
 	//BBS: add the logic to process from an existed gcode file
 	if (m_print->finished()) {
@@ -286,6 +288,7 @@ void BackgroundSlicingProcess::process_sla()
             const std::string export_path = m_sla_print->print_statistics().finalize_output_path(m_export_path);
 
 			//BBS: add plate id for thumbnail generation
+            // TODO(orca-types): manual migration — keys::thumbnails tag declares CoType::String scalar, but call site uses ConfigOptionPoints (vector); typed surface mismatch
             ThumbnailsList thumbnails = this->render_thumbnails(
 				ThumbnailsParams{ current_print()->full_print_config().option<ConfigOptionPoints>("thumbnails")->values, true, true, true, true, 0 });
 
@@ -680,7 +683,7 @@ StringObjectException BackgroundSlicingProcess::validate(StringObjectException *
 	assert(m_print != nullptr);
     assert(m_print == m_fff_print);
 
-    m_fff_print->is_BBL_printer() = wxGetApp().preset_bundle->is_bbl_vendor();
+    m_fff_print->is_BBL_printer() = ::orca::session().presets().raw_ptr()->is_bbl_vendor();
     return m_print->validate(warning, collison_polygons, height_polygons);
 }
 
@@ -689,7 +692,7 @@ StringObjectException BackgroundSlicingProcess::validate(StringObjectException *
 Print::ApplyStatus BackgroundSlicingProcess::apply(const Model &model, const DynamicPrintConfig &config)
 {
 	assert(m_print != nullptr);
-	assert(config.opt_enum<PrinterTechnology>("printer_technology") == m_print->technology());
+	assert((::orca::config::get_enum<::orca::keys::printer_technology, PrinterTechnology>(config).value_or(static_cast<PrinterTechnology>(0)) == m_print->technology()));
 	// TODO: add partplate config
 	DynamicPrintConfig new_config = config;
 	new_config.apply(*m_current_plate->config());
@@ -938,6 +941,7 @@ void BackgroundSlicingProcess::prepare_upload()
     } else {
         m_upload_job.upload_data.upload_path = m_sla_print->print_statistics().finalize_output_path(m_upload_job.upload_data.upload_path.string());
         
+        // TODO(orca-types): manual migration — keys::thumbnails tag declares CoType::String scalar, but call site uses ConfigOptionPoints (vector); typed surface mismatch
         ThumbnailsList thumbnails = this->render_thumbnails(
         	ThumbnailsParams{current_print()->full_print_config().option<ConfigOptionPoints>("thumbnails")->values, true, true, true, true});
 																												 // true, false, true, true); // renders also supports and pad

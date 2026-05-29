@@ -9,6 +9,7 @@
 #include "libslic3r/MaterialType.hpp"
 #include "MsgDialog.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "orca/Config.hpp"
 #include "Plater.hpp"
 
 #include <wx/msgdlg.h>
@@ -166,7 +167,7 @@ void ConfigManipulation::check_filament_max_volumetric_speed(DynamicPrintConfig 
 
 void ConfigManipulation::check_chamber_temperature(DynamicPrintConfig* config)
 {
-   bool support_chamber_temp_control=GUI::wxGetApp().preset_bundle->printers.get_selected_preset().config.opt_bool("support_chamber_temp_control");
+   bool support_chamber_temp_control=::orca::config::get<::orca::keys::support_chamber_temp_control>(::orca::session().presets().raw_ptr()->printers.get_selected_preset().config).value_or(false);
     if (support_chamber_temp_control&&config->has("chamber_temperature")) {
         std::string filament_type = config->option<ConfigOptionStrings>("filament_type")->get_at(0);
         int chamber_min_temp, chamber_max_temp;
@@ -197,7 +198,7 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
 
     // layer_height shouldn't be equal to zero
     auto layer_height = config->opt_float("layer_height");
-    auto gpreset = GUI::wxGetApp().preset_bundle->printers.get_edited_preset();
+    auto gpreset = ::orca::session().presets().raw_ptr()->printers.get_edited_preset();
     if (layer_height < EPSILON)
     {
         const wxString msg_text = _(L("Too small layer height.\nReset to 0.2."));
@@ -211,7 +212,7 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
     }
 
     //BBS: limite the max layer_herght
-    auto max_lh = gpreset.config.opt_float("max_layer_height",0);
+    auto max_lh = ::orca::config::get_at<::orca::keys::max_layer_height>(gpreset.config, 0).value_or(0.0);
     if (max_lh > 0.2 && layer_height > max_lh+ EPSILON)
     {
         const wxString msg_text = wxString::Format(L"Too large layer height.\nReset to %0.3f.", max_lh);
@@ -306,7 +307,7 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
     }
 
     if (config->option<ConfigOptionBool>("enable_wrapping_detection")->value) {
-        std::string printer_type = wxGetApp().preset_bundle->printers.get_edited_preset().get_printer_type(wxGetApp().preset_bundle);
+        std::string printer_type = ::orca::session().presets().raw_ptr()->printers.get_edited_preset().get_printer_type(::orca::session().presets().raw_ptr());
         if (!DevPrinterConfigUtil::support_wrapping_detection(printer_type)) {
             DynamicPrintConfig new_conf = *config;
             new_conf.set_key_value("enable_wrapping_detection", new ConfigOptionBool(false));
@@ -379,7 +380,7 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
     }
 
     // BBS
-    int filament_cnt = wxGetApp().preset_bundle->filament_presets.size();
+    int filament_cnt = ::orca::session().presets().raw_ptr()->filament_presets.size();
 #if 0
     bool has_wipe_tower = filament_cnt > 1 && config->opt_bool("enable_prime_tower");
     if (has_wipe_tower && (config->opt_bool("adaptive_layer_height") || config->opt_bool("independent_support_layer_height"))) {
@@ -569,9 +570,9 @@ void ConfigManipulation::apply_null_fff_config(DynamicPrintConfig *config, std::
 
 void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, const bool is_global_config)
 {
-    PresetBundle *preset_bundle  = wxGetApp().preset_bundle;
+    PresetBundle *preset_bundle  = ::orca::session().presets().raw_ptr();
 
-    auto gcflavor = preset_bundle->printers.get_edited_preset().config.option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor")->value;
+    auto gcflavor = ::orca::config::get_enum<::orca::keys::gcode_flavor, GCodeFlavor>(preset_bundle->printers.get_edited_preset().config).value_or(static_cast<GCodeFlavor>(0));
 
     bool have_volumetric_extrusion_rate_slope = config->option<ConfigOptionFloat>("max_volumetric_extrusion_rate_slope")->value > 0;
     float have_volumetric_extrusion_rate_slope_segment_length = config->option<ConfigOptionFloat>("max_volumetric_extrusion_rate_slope_segment_length")->value;
@@ -677,8 +678,8 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
 
     bool machine_supports_junction_deviation = false;
     if (gcflavor == gcfMarlinFirmware) {
-        if (const auto *machine_jd = preset_bundle->printers.get_edited_preset().config.option<ConfigOptionFloats>("machine_max_junction_deviation")) {
-            machine_supports_junction_deviation = !machine_jd->values.empty() && machine_jd->values.front() > 0.0;
+        if (auto machine_jd = ::orca::config::get_vec<::orca::keys::machine_max_junction_deviation>(preset_bundle->printers.get_edited_preset().config)) {
+            machine_supports_junction_deviation = !machine_jd->empty() && machine_jd->front() > 0.0;
         }
     }
     toggle_line("default_junction_deviation", gcflavor == gcfMarlinFirmware);
@@ -819,8 +820,8 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
 
     toggle_field("single_extruder_multi_material", !is_BBL_Printer);
 
-    auto bSEMM = preset_bundle->printers.get_edited_preset().config.opt_bool("single_extruder_multi_material");
-    const bool supports_wipe_tower_2 = !is_BBL_Printer && preset_bundle->printers.get_edited_preset().config.opt_enum<WipeTowerType>("wipe_tower_type") == WipeTowerType::Type2;
+    auto bSEMM = ::orca::config::get<::orca::keys::single_extruder_multi_material>(preset_bundle->printers.get_edited_preset().config).value_or(false);
+    const bool supports_wipe_tower_2 = !is_BBL_Printer && ::orca::config::get_enum<::orca::keys::wipe_tower_type, WipeTowerType>(preset_bundle->printers.get_edited_preset().config).value_or(static_cast<WipeTowerType>(0)) == WipeTowerType::Type2;
 
     toggle_field("ooze_prevention", !bSEMM);
     bool have_ooze_prevention = config->opt_bool("ooze_prevention");
@@ -839,7 +840,7 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     for (auto el : {"wall_filament", "sparse_infill_filament", "solid_infill_filament", "wipe_tower_filament"})
         toggle_line(el, !bSEMM);
 
-    bool purge_in_primetower = preset_bundle->printers.get_edited_preset().config.opt_bool("purge_in_prime_tower");
+    bool purge_in_primetower = ::orca::config::get<::orca::keys::purge_in_prime_tower>(preset_bundle->printers.get_edited_preset().config).value_or(false);
 
     for (auto el : {"wipe_tower_rotation_angle", "wipe_tower_cone_angle",
                     "wipe_tower_extra_spacing", "wipe_tower_max_purge_speed",
@@ -975,7 +976,7 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     
     toggle_line("infill_overhang_angle", config->opt_enum<InfillPattern>("sparse_infill_pattern") == InfillPattern::ipLateralHoneycomb);
 
-    std::string printer_type = wxGetApp().preset_bundle->printers.get_edited_preset().get_printer_type(wxGetApp().preset_bundle);
+    std::string printer_type = ::orca::session().presets().raw_ptr()->printers.get_edited_preset().get_printer_type(::orca::session().presets().raw_ptr());
     toggle_line("enable_wrapping_detection", DevPrinterConfigUtil::support_wrapping_detection(printer_type));
 }
 
@@ -1058,8 +1059,8 @@ void ConfigManipulation::toggle_print_sla_options(DynamicPrintConfig* config)
 int ConfigManipulation::show_spiral_mode_settings_dialog(bool is_object_config)
 {
     wxString msg_text = _(L("Spiral mode only works when wall loops is 1, support is disabled, clumping detection by probing is disabled, top shell layers is 0, sparse infill density is 0 and timelapse type is traditional."));
-    auto printer_structure_opt = wxGetApp().preset_bundle->printers.get_edited_preset().config.option<ConfigOptionEnum<PrinterStructure>>("printer_structure");
-    if (printer_structure_opt && printer_structure_opt->value == PrinterStructure::psI3) {
+    auto printer_structure_opt = ::orca::config::get_enum<::orca::keys::printer_structure, PrinterStructure>(::orca::session().presets().raw_ptr()->printers.get_edited_preset().config);
+    if (printer_structure_opt && *printer_structure_opt == PrinterStructure::psI3) {
         msg_text += _(L(" But machines with I3 structure will not generate timelapse videos."));
     }
     if (!is_object_config)
