@@ -29,6 +29,20 @@ target_include_directories(${_TEST_NAME}_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/engine/src
     )
 
+# Phase 3.2.3 — test_wasm_host.cpp uses wasmtime_wat2wasm directly to author
+# an inline WAT fixture, so engine_tests needs its own view of the wasmtime
+# C API. libslic3r links wasmtime PRIVATE so consumers don't inherit it.
+find_path(WASMTIME_INCLUDE_DIR_TESTS wasmtime.h)
+find_library(WASMTIME_LIBRARY_TESTS NAMES wasmtime)
+if (WASMTIME_INCLUDE_DIR_TESTS AND WASMTIME_LIBRARY_TESTS)
+    target_include_directories(${_TEST_NAME}_tests SYSTEM PRIVATE
+        ${WASMTIME_INCLUDE_DIR_TESTS})
+    target_link_libraries(${_TEST_NAME}_tests ${WASMTIME_LIBRARY_TESTS})
+else ()
+    message(FATAL_ERROR "engine_tests needs wasmtime headers + lib; "
+        "re-run `cmake --build deps/build --target dep_Wasmtime`.")
+endif ()
+
 # Where the fixture plugin's binary + manifest.json land after build. The loader
 # test reads $TEST_FIXTURES_DIR/loader_plugin/{<id>.so, manifest.json}. Match
 # the staged dir set in fixtures/loader_plugin/CMakeLists.txt.

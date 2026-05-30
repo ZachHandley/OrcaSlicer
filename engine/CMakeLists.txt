@@ -33,6 +33,7 @@ target_sources(libslic3r PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PlaceholderProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PrinterAgentAdapter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/WasmHost.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/WasmImports.cpp
 )
 target_include_directories(libslic3r PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include

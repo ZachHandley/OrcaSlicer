@@ -11,10 +11,14 @@
 #include "orca/Result.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <string>
 
 namespace orca::wasm {
+
+struct ImportContext;
 
 /// RAII wrapper for one instantiated wasm module. Owns the wasmtime
 /// store + module + instance triple. Pimpl so this header doesn't drag
@@ -33,6 +37,13 @@ public:
     /// Compiled wasm bytecode size in bytes (informational/telemetry).
     std::size_t module_size() const noexcept;
 
+    /// Invoke an exported function with one i64 argument that returns one
+    /// i32. Returns ErrorCode::NotFound if the export does not exist or
+    /// has the wrong signature, ParseError on a runtime trap, and Unknown
+    /// on any other wasmtime error.
+    Result<std::int32_t> call_i64_to_i32(const std::string& fn_name,
+                                         std::int64_t arg);
+
 private:
     std::unique_ptr<Impl> impl_;
 };
@@ -48,11 +59,14 @@ public:
     WasmHost(const WasmHost&)            = delete;
     WasmHost& operator=(const WasmHost&) = delete;
 
-    /// Read `path`, compile it as a wasm module, instantiate with an empty
-    /// import set, and return the resulting instance. The full host import
-    /// table (capabilities, gated by permissions) lands in Phase 3.2.3.
+    /// Read `path`, compile it as a wasm module, install the orca_* host
+    /// imports against `ctx` (see WasmImports.hpp), and instantiate. The
+    /// ImportContext must outlive the returned WasmInstance — it is
+    /// referenced by every import callback for permission decisions and
+    /// engine-services access. Pass an empty / default-constructed
+    /// ImportContext for smoke loads that don't call host imports.
     Result<std::unique_ptr<WasmInstance>>
-    load_wasm(const std::filesystem::path& path);
+    load_wasm(const std::filesystem::path& path, ImportContext& ctx);
 
 private:
     struct Impl;

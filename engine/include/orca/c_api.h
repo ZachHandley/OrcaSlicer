@@ -47,15 +47,16 @@ typedef uint64_t orca_subscription_id_t;
 /* ---------- Error codes ---------- */
 
 typedef enum {
-    ORCA_OK                   = 0,
-    ORCA_ERR_UNKNOWN          = 1,
-    ORCA_ERR_INVALID_ARGUMENT = 2,
-    ORCA_ERR_NOT_FOUND        = 3,
-    ORCA_ERR_ALREADY_EXISTS   = 4,
-    ORCA_ERR_IO               = 5,
-    ORCA_ERR_PARSE            = 6,
-    ORCA_ERR_CANCELLED        = 7,
-    ORCA_ERR_UNSUPPORTED      = 8
+    ORCA_OK                    = 0,
+    ORCA_ERR_UNKNOWN           = 1,
+    ORCA_ERR_INVALID_ARGUMENT  = 2,
+    ORCA_ERR_NOT_FOUND         = 3,
+    ORCA_ERR_ALREADY_EXISTS    = 4,
+    ORCA_ERR_IO                = 5,
+    ORCA_ERR_PARSE             = 6,
+    ORCA_ERR_CANCELLED         = 7,
+    ORCA_ERR_UNSUPPORTED       = 8,
+    ORCA_ERR_PERMISSION_DENIED = 9
 } orca_error_code_t;
 
 /* Returns the last error message produced on the current thread. Borrowed,

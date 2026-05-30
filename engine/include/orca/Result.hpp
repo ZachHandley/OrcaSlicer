@@ -16,8 +16,9 @@ enum class ErrorCode : int {
     ParseError,
     Cancelled,
     Unsupported,
-    NotImplemented,  // method declared but body not yet written (migration scaffold)
-    InvalidState,    // engine state precondition not met (e.g. no PresetBundle attached)
+    NotImplemented,    // method declared but body not yet written (migration scaffold)
+    InvalidState,      // engine state precondition not met (e.g. no PresetBundle attached)
+    PermissionDenied,  // capability bit missing from the plugin's permission set
 };
 
 struct Error {

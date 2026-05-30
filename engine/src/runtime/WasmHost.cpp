@@ -9,6 +9,7 @@
 // PluginManager once kind=="wasm" dispatch lands in Phase 3.2.6.
 
 #include "WasmHost.hpp"
+#include "WasmImports.hpp"
 
 #include <wasm.h>
 #include <wasmtime.h>
@@ -83,6 +84,60 @@ std::size_t WasmInstance::module_size() const noexcept {
     return impl_ ? impl_->module_bytes : 0;
 }
 
+Result<std::int32_t>
+WasmInstance::call_i64_to_i32(const std::string& fn_name, std::int64_t arg) {
+    using R = Result<std::int32_t>;
+    if (!impl_ || !impl_->store)
+        return R{Error{ErrorCode::InvalidState, "instance not initialized"}};
+
+    wasmtime_context_t* ctx = wasmtime_store_context(impl_->store);
+
+    wasmtime_extern_t fn_ext;
+    if (!wasmtime_instance_export_get(ctx, &impl_->instance,
+                                      fn_name.data(), fn_name.size(),
+                                      &fn_ext))
+        return R{Error{ErrorCode::NotFound,
+                       "wasm export not found: " + fn_name}};
+
+    if (fn_ext.kind != WASMTIME_EXTERN_FUNC) {
+        wasmtime_extern_delete(&fn_ext);
+        return R{Error{ErrorCode::NotFound,
+                       "wasm export is not a function: " + fn_name}};
+    }
+
+    wasmtime_val_t in;
+    in.kind = WASMTIME_I64;
+    in.of.i64 = arg;
+
+    wasmtime_val_t out;
+    out.kind = WASMTIME_I32;
+    out.of.i32 = 0;
+
+    wasm_trap_t* trap = nullptr;
+    wasmtime_error_t* err = wasmtime_func_call(
+        ctx, &fn_ext.of.func, &in, 1, &out, 1, &trap);
+    wasmtime_extern_delete(&fn_ext);
+
+    if (err) {
+        const auto msg = take_error_message(err);
+        return R{Error{ErrorCode::Unknown,
+                       "wasmtime_func_call(" + fn_name + ") failed: " + msg}};
+    }
+    if (trap) {
+        wasm_byte_vec_t tmsg;
+        wasm_trap_message(trap, &tmsg);
+        std::string msg(tmsg.data, tmsg.size);
+        wasm_byte_vec_delete(&tmsg);
+        wasm_trap_delete(trap);
+        return R{Error{ErrorCode::ParseError,
+                       "wasm trap in " + fn_name + ": " + msg}};
+    }
+    if (out.kind != WASMTIME_I32)
+        return R{Error{ErrorCode::Unknown,
+                       "wasm export returned non-i32 from " + fn_name}};
+    return ok(out.of.i32);
+}
+
 // ---------------------------------------------------------------------------
 // WasmHost — owns the shared engine. The engine is expensive to construct
 // (sets up Cranelift / Winch + Wasmtime config) so we only build it once.
@@ -102,7 +157,7 @@ WasmHost::WasmHost() : impl_(std::make_unique<Impl>()) {
 WasmHost::~WasmHost() = default;
 
 Result<std::unique_ptr<WasmInstance>>
-WasmHost::load_wasm(const std::filesystem::path& path) {
+WasmHost::load_wasm(const std::filesystem::path& path, ImportContext& ictx) {
     using R = Result<std::unique_ptr<WasmInstance>>;
 
     if (!impl_ || !impl_->engine)
@@ -133,25 +188,35 @@ WasmHost::load_wasm(const std::filesystem::path& path) {
         inst_impl->module = mod;
     }
 
-    // 2. create store
-    inst_impl->store = wasmtime_store_new(impl_->engine, nullptr, nullptr);
+    // 2. create store; attach the ImportContext so every host_* callback
+    //    can find it via wasmtime_context_get_data. We do NOT take ownership
+    //    of ictx — caller guarantees lifetime — so the finalizer is null.
+    inst_impl->store = wasmtime_store_new(impl_->engine, &ictx, /*finalizer*/ nullptr);
     if (!inst_impl->store)
         return R{Error{ErrorCode::Unknown, "wasmtime_store_new returned null"}};
 
-    // 3. instantiate with empty imports (Phase 3.2.3 wires real imports)
+    // 3. install host imports on a fresh linker and instantiate.
+    wasmtime_linker_t* linker = wasmtime_linker_new(impl_->engine);
+    if (!linker)
+        return R{Error{ErrorCode::Unknown, "wasmtime_linker_new returned null"}};
+
+    auto imports_res = install_imports(linker, impl_->engine);
+    if (!imports_res.ok()) {
+        wasmtime_linker_delete(linker);
+        return R{imports_res.error()};
+    }
+
     {
         wasmtime_context_t* ctx = wasmtime_store_context(inst_impl->store);
         wasm_trap_t* trap = nullptr;
-        wasmtime_error_t* err = wasmtime_instance_new(
-            ctx, inst_impl->module,
-            /*imports*/  nullptr,
-            /*n_imports*/ 0,
-            &inst_impl->instance,
-            &trap);
+        wasmtime_error_t* err = wasmtime_linker_instantiate(
+            linker, ctx, inst_impl->module, &inst_impl->instance, &trap);
+        wasmtime_linker_delete(linker);
+
         if (err) {
             const auto msg = take_error_message(err);
             return R{Error{ErrorCode::Unknown,
-                           "wasmtime_instance_new failed: " + msg}};
+                           "wasmtime_linker_instantiate failed: " + msg}};
         }
         if (trap) {
             wasm_byte_vec_t tmsg;

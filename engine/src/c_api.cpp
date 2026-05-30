@@ -63,9 +63,10 @@ orca_error_code_t map_code(orca::ErrorCode c) {
         case E::IoError:         return ORCA_ERR_IO;
         case E::ParseError:      return ORCA_ERR_PARSE;
         case E::Cancelled:       return ORCA_ERR_CANCELLED;
-        case E::Unsupported:     return ORCA_ERR_UNSUPPORTED;
-        case E::NotImplemented:  return ORCA_ERR_UNSUPPORTED;
-        case E::InvalidState:    return ORCA_ERR_UNKNOWN;
+        case E::Unsupported:      return ORCA_ERR_UNSUPPORTED;
+        case E::NotImplemented:   return ORCA_ERR_UNSUPPORTED;
+        case E::InvalidState:     return ORCA_ERR_UNKNOWN;
+        case E::PermissionDenied: return ORCA_ERR_PERMISSION_DENIED;
     }
     return ORCA_ERR_UNKNOWN;
 }
