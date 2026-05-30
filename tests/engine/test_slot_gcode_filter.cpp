@@ -118,7 +118,7 @@ CanaryResult run_canary_slice(orca::Session& session, const char* out_path_tag) 
 
     if (cr.state == orca::SliceState::Completed) {
         namespace fs = std::filesystem;
-        cr.output_path = fs::temp_directory_path()
+        cr.output_path = fs::path{TEST_TMP_DIR}
                        / (std::string("orca_slot_gcode_filter_") + out_path_tag + ".gcode");
         std::error_code rm_ec;
         fs::remove(cr.output_path, rm_ec);

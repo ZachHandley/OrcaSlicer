@@ -16,7 +16,9 @@
 #include "Slicer.hpp"
 #include "Export.hpp"
 #include "Events.hpp"
+#include "PrinterAgent.hpp"
 #include "Result.hpp"
+#include "plugin_api.h"
 
 // Forward declarations of libslic3r types referenced by the migration-scaffold
 // attach_* methods below. Phase 0.4a–0.6 use these to BORROW GUI/CLI-owned
@@ -102,6 +104,41 @@ public:
     /// at slice-start time.
     PluginRegistry&       plugin_registry();
     const PluginRegistry& plugin_registry() const;
+
+    // ---------- Printer agents (Phase 2.4) ----------
+    //
+    // Printer agents are plugin-provided implementations of the
+    // orca::PrinterAgent C++ interface, exposed through the
+    // ORCA_SLOT_PRINTER_AGENT slot. The Session enumerates the registered
+    // agent kinds and instantiates them on demand; the returned object owns
+    // the underlying plugin-allocated instance and tears it down on
+    // destruction.
+
+    /// List the printer agent kinds currently registered through any plugin's
+    /// ORCA_SLOT_PRINTER_AGENT slot. Snapshot semantics — the returned vector
+    /// is a point-in-time view; mid-call (un)registration is invisible.
+    std::vector<PrinterAgentInfo> list_printer_agents() const;
+
+    /// True if at least one ORCA_SLOT_PRINTER_AGENT slot matches agent_id.
+    bool has_printer_agent(const std::string& agent_id) const;
+
+    /// Instantiate the printer agent registered under agent_id. The returned
+    /// pointer is ready to use — connect / send_command / etc. apply directly.
+    /// Returns InvalidArgument if agent_id is empty, NotFound if no slot
+    /// matches, InvalidState if the plugin's create_instance returned NULL.
+    Result<std::unique_ptr<PrinterAgent>>
+    create_printer_agent(const std::string& agent_id);
+
+    /// Convenience helper used by in-tree printer agent registrations to avoid
+    /// taking a dependency on the engine-internal PluginRegistry header. Runs
+    /// the set_current_plugin_id / add_slot / clear_current_plugin_id sequence
+    /// against the contained PluginRegistry. Returns the new slot id, or 0 on
+    /// failure (matches PluginRegistry::add_slot's failure convention).
+    orca_plugin_slot_id_t add_printer_agent_slot(
+        const std::string&               owning_plugin_id,
+        const orca_slot_printer_agent_t* vtable,
+        void*                            user_data,
+        int                              priority = 0);
 
 private:
     Session();

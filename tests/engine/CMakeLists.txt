@@ -15,6 +15,7 @@ add_executable(${_TEST_NAME}_tests
     test_slot_pipeline.cpp
     test_slot_gcode_filter.cpp
     test_slot_placeholder_provider.cpp
+    test_slot_printer_agent.cpp
     )
 
 target_link_libraries(${_TEST_NAME}_tests test_common libslic3r Catch2::Catch2WithMain)
@@ -27,8 +28,14 @@ target_include_directories(${_TEST_NAME}_tests PRIVATE
 # Where the fixture plugin's binary + manifest.json land after build. The loader
 # test reads $TEST_FIXTURES_DIR/loader_plugin/{<id>.so, manifest.json}. Match
 # the staged dir set in fixtures/loader_plugin/CMakeLists.txt.
+#
+# TEST_TMP_DIR is the scratch directory the canary tests write G-code into.
+# Lives under the build tree so we never spew into /tmp. Created up-front so
+# the tests don't have to mkdir at runtime.
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/tests/engine/tmp")
 target_compile_definitions(${_TEST_NAME}_tests PRIVATE
     "TEST_FIXTURES_DIR=\"${CMAKE_BINARY_DIR}/tests/engine/fixtures\""
+    "TEST_TMP_DIR=\"${CMAKE_BINARY_DIR}/tests/engine/tmp\""
     )
 
 # Ensure the fixture binary + its manifest copy step run before the tests build.

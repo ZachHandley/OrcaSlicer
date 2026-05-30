@@ -98,7 +98,7 @@ TEST_CASE("Service slice fires all 9 pipeline-stage events", "[engine][events][p
 
     // ---- Export through the engine Exporter so BeforeGCodeExport / AfterGCodeExport fire. ----
     namespace fs = std::filesystem;
-    fs::path out_path = fs::temp_directory_path() / "orca_pipeline_events_test.gcode";
+    fs::path out_path = fs::path{TEST_TMP_DIR} / "orca_pipeline_events_test.gcode";
     std::error_code rm_ec;
     fs::remove(out_path, rm_ec);
 

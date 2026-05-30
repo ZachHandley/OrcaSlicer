@@ -6,6 +6,9 @@
 #include "QidiPrinterAgent.hpp"
 #include "SnapmakerPrinterAgent.hpp"
 #include "MoonrakerPrinterAgent.hpp"
+#include "libslic3r/Utils.hpp"
+#include "orca/Globals.hpp"
+#include "orca/Session.hpp"
 #include <boost/log/trivial.hpp>
 #include <map>
 #include <mutex>
@@ -135,6 +138,14 @@ void NetworkAgentFactory::register_all_agents()
     register_agent<SnapmakerPrinterAgent>();
     register_agent<MoonrakerPrinterAgent>();
 
+    // Phase 2.4.5 — additively register Moonraker with the engine's plugin
+    // registry so out-of-process/plugin consumers can reach it via
+    // orca::Session::create_printer_agent("moonraker"). The legacy factory
+    // entry above keeps working for the existing GUI device flow.
+    if (::orca::has_session()) {
+        MoonrakerPrinterAgent::register_with_orca_session(&::orca::session(), Slic3r::data_dir());
+    }
+
     // BBLPrinterAgent takes no constructor args, so register manually
     {
         auto info = BBLPrinterAgent::get_agent_info_static();
@@ -146,6 +157,12 @@ void NetworkAgentFactory::register_all_agents()
                                        agent->set_cloud_agent(cloud_agent);
                                    return agent;
                                });
+    }
+
+    // Phase 2.4.6 — additively register BBLPrinterAgent with the engine's
+    // plugin registry. Same idempotency pattern as Moonraker above.
+    if (::orca::has_session()) {
+        BBLPrinterAgent::register_with_orca_session(&::orca::session());
     }
 }
 

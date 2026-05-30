@@ -176,6 +176,120 @@ typedef struct {
                                     void*    user_data);
 } orca_slot_placeholder_provider_t;
 
+/* ------------------------------------------------------------
+ * Printer agent slot (Phase 2.4.2)
+ *
+ * A printer agent represents a single printer KIND (e.g. "moonraker",
+ * "bambu", "klipper"). The engine instantiates an agent via the C lifecycle
+ * functions in this vtable and wraps the returned opaque instance pointer
+ * in orca::PrinterAgentAdapter (engine/src/PrinterAgentAdapter.{hpp,cpp}),
+ * which presents the orca::PrinterAgent C++ interface to engine consumers.
+ *
+ * Status, message, and cancellation flow is INVERTED across the boundary:
+ * instead of the plugin holding a std::function<void(...)> callback (which
+ * doesn't cross the C ABI), the host hands the plugin an
+ * orca_printer_host_t emit-table at create() time. The plugin invokes
+ * host->emit_status(host_ctx, ...) from its own thread when status changes;
+ * the host thunk routes the call to the std::function the engine consumer
+ * registered via PrinterAgent::on_status.
+ *
+ * All function pointers EXCEPT create_instance and destroy_instance are
+ * nullable. A null pointer means "this agent does not support that
+ * operation" — the adapter returns ErrorCode::NotImplemented to the engine
+ * caller. Keeps the surface gracefully extensible while letting plugins
+ * implement only what they support.
+ *
+ * Requires permission bit ORCA_PERM_DEVICE_CONTROL.
+ * ------------------------------------------------------------ */
+
+/* ---- Host-side emit table delivered to the plugin at create_instance. ----
+ * The plugin stores the pointer + host_ctx and invokes the emit_* thunks
+ * whenever it has news to deliver. Thunks are safe to call from any thread.
+ */
+typedef enum {
+    ORCA_PRINTER_STATE_DISCONNECTED = 0,
+    ORCA_PRINTER_STATE_CONNECTING   = 1,
+    ORCA_PRINTER_STATE_CONNECTED    = 2,
+    ORCA_PRINTER_STATE_ERROR        = 3
+} orca_printer_state_t;
+
+typedef struct {
+    uint32_t struct_size;
+    void* host_ctx;   /* opaque, plugin treats as a token; host_ctx points to the Adapter */
+
+    /* Status updates — fire whenever the connection state OR a non-fatal
+       detail code changes. message may be NULL for empty messages. */
+    void (*emit_status)(void*                host_ctx,
+                        orca_printer_state_t state,
+                        int                  code,
+                        const char*          message);
+
+    /* Asynchronous message from the printer (e.g. a Klipper response, a
+       Moonraker JSON-RPC notification, a raw Marlin line). payload may be
+       NUL-terminated text or arbitrary bytes; payload_len is authoritative. */
+    void (*emit_message)(void*       host_ctx,
+                         const char* payload,
+                         size_t      payload_len);
+
+    /* Synchronous query the plugin may consult during long ops (e.g. mid-
+       upload). Returns non-zero if the engine consumer has requested
+       cancellation. */
+    int (*is_cancelled)(void* host_ctx);
+} orca_printer_host_t;
+
+/* ---- Plugin-side vtable. Most fields are nullable. ----
+ *
+ * Lifecycle contract:
+ *   create_instance(host, user_data) -> opaque instance pointer (or NULL on
+ *       allocation failure). The host argument is owned by the adapter and
+ *       remains valid until destroy_instance returns.
+ *   destroy_instance(instance) -> must release everything created in
+ *       create_instance. The host pointer must not be touched after this.
+ *
+ * All other methods take the instance pointer as their first argument and
+ * return an orca_error_code_t. ORCA_OK on success. */
+typedef struct {
+    uint32_t struct_size;
+
+    /* Identity — copied into orca::PrinterAgentInfo by the adapter. All
+       four MUST be non-NULL and stable for the lifetime of the plugin. */
+    const char* agent_id;          /* e.g. "moonraker" — used by Session::create_printer_agent */
+    const char* agent_name;        /* human-readable */
+    const char* agent_version;     /* semver */
+    const char* agent_description; /* one-line capability summary */
+
+    /* Lifecycle — NOT nullable. */
+    void* (*create_instance)(const orca_printer_host_t* host, void* user_data);
+    void  (*destroy_instance)(void* instance);
+
+    /* Communication — all nullable. Return ORCA_OK on success. */
+    orca_error_code_t (*connect)(void*       instance,
+                                 const char* device_id,
+                                 const char* host_or_ip,
+                                 int         port,
+                                 const char* username,
+                                 const char* password,
+                                 int         use_tls);
+    orca_error_code_t (*disconnect)(void* instance);
+
+    /* Synchronous state query. Returns the current state directly (NOT an
+       error code) — this is the only non-error-code accessor. */
+    orca_printer_state_t (*current_state)(void* instance);
+
+    /* Sends a raw payload to the printer. payload_len is authoritative; the
+       plugin must not assume NUL termination. */
+    orca_error_code_t (*send_command)(void*       instance,
+                                      const char* payload,
+                                      size_t      payload_len);
+
+    /* Print job control. */
+    orca_error_code_t (*start_print)(void*       instance,
+                                     const char* gcode_path,
+                                     const char* job_name,
+                                     int         start_immediately);
+    orca_error_code_t (*cancel_print)(void* instance);
+} orca_slot_printer_agent_t;
+
 /* ============ Manifest + permissions ============ */
 
 /* Permission bits declared by the plugin in orca_plugin_manifest_t.permissions.

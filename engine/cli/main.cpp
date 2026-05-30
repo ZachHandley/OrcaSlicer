@@ -117,8 +117,10 @@ int main() {
     //    falling back to the integer storage when keys_map is null. This export
     //    is the regression guard for that fix.
     GCodeProcessorResult gcode_result;
+    // Write canary G-code to CWD, not /tmp — predictable for the user invoking
+    // the binary; lets `cd build && orca-engine-cli` keep its output local.
     const std::filesystem::path out_path =
-        std::filesystem::temp_directory_path() / "orca_engine_canary.gcode";
+        std::filesystem::current_path() / "orca_engine_canary.gcode";
     std::error_code rm_ec;
     std::filesystem::remove(out_path, rm_ec);
 
@@ -197,7 +199,7 @@ int main() {
         }
 
         const std::filesystem::path svc_out =
-            std::filesystem::temp_directory_path() / "orca_engine_service.gcode";
+            std::filesystem::current_path() / "orca_engine_service.gcode";
         std::error_code rm2;
         std::filesystem::remove(svc_out, rm2);
 

@@ -14,6 +14,11 @@
 
 #include "PluginManager.hpp"
 #include "PluginRegistry.hpp"
+#include "PrinterAgentAdapter.hpp"
+
+#include "orca/plugin_api.h"
+
+#include <utility>
 
 namespace orca {
 
@@ -145,6 +150,87 @@ PluginRegistry& Session::plugin_registry() {
 
 const PluginRegistry& Session::plugin_registry() const {
     return impl_->registry;
+}
+
+// ---------- Printer agents (Phase 2.4) ----------
+
+namespace {
+
+PrinterAgentInfo info_from_vtable(const orca_slot_printer_agent_t* vt) {
+    PrinterAgentInfo info;
+    info.id          = (vt->agent_id          != nullptr) ? vt->agent_id          : "";
+    info.name        = (vt->agent_name        != nullptr) ? vt->agent_name        : "";
+    info.version     = (vt->agent_version     != nullptr) ? vt->agent_version     : "";
+    info.description = (vt->agent_description != nullptr) ? vt->agent_description : "";
+    return info;
+}
+
+} // namespace
+
+std::vector<PrinterAgentInfo> Session::list_printer_agents() const {
+    std::vector<PrinterAgentInfo> out;
+    const auto snap = impl_->registry.snapshot(ORCA_SLOT_PRINTER_AGENT);
+    out.reserve(snap.size());
+    for (const auto& e : snap) {
+        const auto* vt = static_cast<const orca_slot_printer_agent_t*>(e.vtable);
+        if (vt == nullptr || vt->agent_id == nullptr)
+            continue;
+        out.push_back(info_from_vtable(vt));
+    }
+    return out;
+}
+
+bool Session::has_printer_agent(const std::string& agent_id) const {
+    if (agent_id.empty())
+        return false;
+    const auto snap = impl_->registry.snapshot(ORCA_SLOT_PRINTER_AGENT);
+    for (const auto& e : snap) {
+        const auto* vt = static_cast<const orca_slot_printer_agent_t*>(e.vtable);
+        if (vt != nullptr && vt->agent_id != nullptr && agent_id == vt->agent_id)
+            return true;
+    }
+    return false;
+}
+
+Result<std::unique_ptr<PrinterAgent>>
+Session::create_printer_agent(const std::string& agent_id) {
+    if (agent_id.empty())
+        return err<std::unique_ptr<PrinterAgent>>(
+            ErrorCode::InvalidArgument, "printer agent id is empty");
+
+    const auto snap = impl_->registry.snapshot(ORCA_SLOT_PRINTER_AGENT);
+    for (const auto& e : snap) {
+        const auto* vt = static_cast<const orca_slot_printer_agent_t*>(e.vtable);
+        if (vt == nullptr || vt->agent_id == nullptr || agent_id != vt->agent_id)
+            continue;
+
+        PrinterAgentInfo info = info_from_vtable(vt);
+        auto adapter = std::make_unique<PrinterAgentAdapter>(
+            vt, e.user_data, std::move(info));
+        auto init = adapter->initialize();
+        if (!init.ok())
+            return err<std::unique_ptr<PrinterAgent>>(
+                init.error().code, init.error().message);
+        return Result<std::unique_ptr<PrinterAgent>>(
+            std::unique_ptr<PrinterAgent>(std::move(adapter)));
+    }
+
+    return err<std::unique_ptr<PrinterAgent>>(
+        ErrorCode::NotFound, "no printer agent registered under that id");
+}
+
+orca_plugin_slot_id_t Session::add_printer_agent_slot(
+    const std::string&               owning_plugin_id,
+    const orca_slot_printer_agent_t* vtable,
+    void*                            user_data,
+    int                              priority) {
+    if (vtable == nullptr)
+        return 0;
+    impl_->registry.set_current_plugin_id(owning_plugin_id);
+    const orca_plugin_slot_id_t id = impl_->registry.add_slot(
+        ORCA_SLOT_PRINTER_AGENT, vtable, user_data, priority);
+    impl_->registry.clear_current_plugin_id();
+    return id;
 }
 
 } // namespace orca
