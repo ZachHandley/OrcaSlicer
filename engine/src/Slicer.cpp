@@ -209,6 +209,25 @@ void Slicer::run_slice(Slic3r::Model work_model) {
                     return fold;
                 });
         }
+
+        // Phase 2.2.2: snapshot the gcode filter slot. Runs after export_gcode
+        // writes the final G-code to disk; any non-OK rc aborts the export and
+        // propagates as an exception out of Print::export_gcode.
+        auto filters = registry.snapshot(ORCA_SLOT_GCODE_FILTER);
+        if (!filters.empty()) {
+            print->set_gcode_filter_callback(
+                [snap = std::move(filters), slice_handle](const std::string& path) -> orca_error_code_t {
+                    for (const auto& e : snap) {
+                        const auto* vt = static_cast<const orca_slot_gcode_filter_t*>(e.vtable);
+                        if (!vt || !vt->filter)
+                            continue;
+                        const auto rc = vt->filter(path.c_str(), slice_handle, e.user_data);
+                        if (rc != ORCA_OK)
+                            return rc;
+                    }
+                    return ORCA_OK;
+                });
+        }
     }
 
     try {

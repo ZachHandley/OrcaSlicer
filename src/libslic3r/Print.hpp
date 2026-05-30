@@ -2,6 +2,7 @@
 #define slic3r_Print_hpp_
 
 #include "PrintBase.hpp"
+#include <orca/c_api.h>
 #include "Fill/FillAdaptive.hpp"
 #include "Fill/FillLightning.hpp"
 
@@ -909,6 +910,11 @@ public:
     ApplyStatus         apply(const Model &model, DynamicPrintConfig config, bool extruder_applied = false) override;
 
     void                process(long long *time_cost_with_cache = nullptr, bool use_cache = false) override;
+    // G-code filter slot (Phase 2.2.1) — runs after the file is written, before
+    // run_post_process_scripts. Installed by engine::Slicer from a registry
+    // snapshot. The std::function returns orca_error_code_t (ORCA_OK on success).
+    using GCodeFilter = std::function<orca_error_code_t(const std::string&)>;
+    void set_gcode_filter_callback(GCodeFilter fn) { m_gcode_filter = std::move(fn); }
     // Exports G-code into a file name based on the path_template, returns the file path of the generated G-code file.
     // If preview_data is not null, the preview_data is filled in for the G-code visualization (not used by the command line Slic3r).
     std::string         export_gcode(const std::string& path_template, GCodeProcessorResult* result, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
@@ -1135,6 +1141,9 @@ private:
     // Throws via cancel_internal+throw_if_canceled on Abort, exiting the
     // pipeline through the existing Slic3r::CanceledException path.
     bool                dispatch_step(orca::PipelineStep step);
+
+    // Phase 2.2.1 — installed gcode filter (may be empty).
+    GCodeFilter         m_gcode_filter{};
 
     // Islands of objects and their supports extruded at the 1st layer.
     Polygons            first_layer_islands() const;

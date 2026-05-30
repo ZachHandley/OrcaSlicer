@@ -135,6 +135,26 @@ typedef struct {
                                   void*                 user_data);
 } orca_slot_pipeline_interceptor_t;
 
+/* ------------------------------------------------------------
+ * G-code filter slot (Phase 2.2.1)
+ *
+ * Filter slots run AFTER the engine has written the final G-code to disk and
+ * BEFORE any external post-process scripts are invoked. The plugin mutates the
+ * file at gcode_path in place (same contract as run_post_process_scripts).
+ *
+ * Multiple filters chain in PluginRegistry priority order (ascending). Each
+ * filter sees the previous filter's output. Returning anything other than
+ * ORCA_OK aborts the export and propagates as RuntimeError.
+ *
+ * Requires permission bit ORCA_PERM_GCODE_MODIFY.
+ * ------------------------------------------------------------ */
+typedef struct {
+    uint32_t struct_size;
+    orca_error_code_t (*filter)(const char* gcode_path,
+                                uint64_t    slice_handle,
+                                void*       user_data);
+} orca_slot_gcode_filter_t;
+
 /* ============ Manifest + permissions ============ */
 
 /* Permission bits declared by the plugin in orca_plugin_manifest_t.permissions.

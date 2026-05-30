@@ -2658,6 +2658,16 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
     this->dispatch_step(orca::PipelineStep::AfterGCodeExport);
     if (m_events_sink)
         m_events_sink->publish(orca::AfterGCodeExport{m_events_slice_handle, std::filesystem::path{path}, /*line_count=*/0});
+    // Phase 2.2.1 — run the chained G-code filter slots (if any) against the
+    // file we just wrote. Filters run before any external post-process scripts
+    // (which are invoked from BackgroundSlicingProcess after export_gcode
+    // returns), matching the "in-process filter precedes external scripts"
+    // contract.
+    if (m_gcode_filter) {
+        const auto rc = m_gcode_filter(path);
+        if (rc != ORCA_OK)
+            throw Slic3r::RuntimeError("orca: gcode filter rejected the file");
+    }
     return path.c_str();
 }
 
