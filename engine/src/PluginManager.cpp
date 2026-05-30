@@ -12,6 +12,7 @@
 // ORCA_ERR_UNSUPPORTED until Phase 2 wires them.
 
 #include "PluginManager.hpp"
+#include "PluginRegistry.hpp"
 
 #include "orca/Session.hpp"
 #include "orca/c_api.h"
@@ -456,9 +457,12 @@ orca_error_code_t PluginManager::load_plugin(const std::filesystem::path& plugin
     }
 
     // --- 7. ABI handshake -----------------------------------------------
-    // PluginRegistry's concrete type lives in Phase 1.2.2; for now we
-    // forward whatever pointer the orchestrator handed bind_session as
-    // the opaque registry argument.
+    // Set the current plugin id on the registry BEFORE calling the plugin's
+    // register fn so its add_slot / set_manifest calls succeed (the registry
+    // refuses ownerless additions).
+    if (impl_->registry)
+        impl_->registry->set_current_plugin_id(plugin->id);
+
     auto* registry_opaque =
         reinterpret_cast<orca_plugin_registry_t*>(impl_->registry);
 
@@ -466,6 +470,12 @@ orca_error_code_t PluginManager::load_plugin(const std::filesystem::path& plugin
         plugin->fn_register(ORCA_PLUGIN_ABI_VERSION,
                             registry_opaque,
                             &impl_->host_vtable);
+
+    // Always clear the current plugin id after the register call returns —
+    // subsequent host-side slot operations should not be attributed to it.
+    if (impl_->registry)
+        impl_->registry->clear_current_plugin_id();
+
     if (rc != ORCA_OK) {
         log_line(4, ("orca_plugin_register returned non-OK for " + plugin->id).c_str());
         dl_close(plugin->handle);
@@ -510,6 +520,13 @@ orca_error_code_t PluginManager::unload_plugin(const std::string& plugin_id)
             log_line(4, ("orca_plugin_unregister threw for " + plugin_id).c_str());
         }
     }
+
+    // Drop every slot the plugin registered. fn_unregister is advisory — the
+    // engine owns the registry, so we don't trust the plugin to have cleaned
+    // up its own slot entries.
+    if (impl_->registry)
+        impl_->registry->remove_by_plugin(plugin_id);
+
     dl_close(taken->handle);
     taken->handle = nullptr;
 
@@ -548,3 +565,66 @@ bool PluginManager::is_loaded(const std::string& plugin_id) const
 }
 
 } // namespace orca
+
+// ---------------------------------------------------------------------------
+// C ABI registry bridges (declared in engine/include/orca/plugin_api.h).
+//
+// Plugin shared libraries resolve these symbols against the engine's dynamic
+// symbol table — they MUST have C linkage + default visibility. The engine's
+// build configuration already exports anything in c_api.cpp/PluginManager.cpp
+// via the project-wide -fvisibility=default for libslic3r sources; if you
+// later move the engine to -fvisibility=hidden, decorate these with
+// __attribute__((visibility("default"))) / __declspec(dllexport).
+// ---------------------------------------------------------------------------
+
+extern "C" orca_error_code_t orca_registry_set_manifest(
+    orca_plugin_registry_t*       registry,
+    const orca_plugin_manifest_t* manifest)
+{
+    if (!registry || !manifest) return ORCA_ERR_INVALID_ARGUMENT;
+    if (manifest->struct_size < sizeof(orca_plugin_manifest_t))
+        return ORCA_ERR_INVALID_ARGUMENT;
+
+    auto* reg = reinterpret_cast<orca::PluginRegistry*>(registry);
+
+    orca::StoredManifest m;
+    m.id          = manifest->id          ? manifest->id          : "";
+    m.name        = manifest->name        ? manifest->name        : "";
+    m.version     = manifest->version     ? manifest->version     : "";
+    m.author      = manifest->author      ? manifest->author      : "";
+    m.description = manifest->description ? manifest->description : "";
+    m.permissions = manifest->permissions;
+
+    auto r = reg->set_manifest(m);
+    if (!r.ok()) {
+        if (r.error().code == orca::ErrorCode::AlreadyExists) return ORCA_ERR_ALREADY_EXISTS;
+        if (r.error().code == orca::ErrorCode::InvalidArgument) return ORCA_ERR_INVALID_ARGUMENT;
+        return ORCA_ERR_UNKNOWN;
+    }
+    return ORCA_OK;
+}
+
+extern "C" orca_plugin_slot_id_t orca_registry_add_slot(
+    orca_plugin_registry_t* registry,
+    orca_slot_kind_t        kind,
+    const void*             vtable,
+    void*                   user_data)
+{
+    if (!registry) return 0;
+    auto* reg = reinterpret_cast<orca::PluginRegistry*>(registry);
+    return reg->add_slot(kind, vtable, user_data);
+}
+
+extern "C" orca_error_code_t orca_registry_remove_slot(
+    orca_plugin_registry_t* registry,
+    orca_plugin_slot_id_t   slot_id)
+{
+    if (!registry) return ORCA_ERR_INVALID_ARGUMENT;
+    auto* reg = reinterpret_cast<orca::PluginRegistry*>(registry);
+    auto r = reg->remove_slot(slot_id);
+    if (!r.ok()) {
+        if (r.error().code == orca::ErrorCode::NotFound) return ORCA_ERR_NOT_FOUND;
+        return ORCA_ERR_UNKNOWN;
+    }
+    return ORCA_OK;
+}
