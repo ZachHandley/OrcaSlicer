@@ -410,6 +410,7 @@ endif ()
 
 include(OCCT/OCCT.cmake)
 include(OpenCV/OpenCV.cmake)
+include(Wasmtime/Wasmtime.cmake)
 
 set(_dep_list
     dep_Boost
@@ -427,6 +428,7 @@ set(_dep_list
     dep_CGAL
     dep_GLFW
     dep_OCCT
+    dep_Wasmtime
     ${FREETYPE_PKG}
     ${PNG_PKG}
     ${ZLIB_PKG}
