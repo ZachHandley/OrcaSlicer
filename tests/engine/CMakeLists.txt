@@ -21,6 +21,7 @@ add_executable(${_TEST_NAME}_tests
     test_plugin_reload.cpp
     test_wasm_host.cpp
     test_wasm_plugin.cpp
+    test_wasm_dispatch.cpp
     )
 
 target_link_libraries(${_TEST_NAME}_tests test_common libslic3r Catch2::Catch2WithMain)

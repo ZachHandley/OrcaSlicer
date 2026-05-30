@@ -19,6 +19,9 @@
 #include "orca/PlaceholderProvider.hpp"
 #include "libslic3r/PlaceholderParser.hpp"
 
+#include "runtime/WasmHost.hpp"
+#include "runtime/WasmPlugin.hpp"
+
 #include "nlohmann/json.hpp"
 
 #include <algorithm>
@@ -83,6 +86,11 @@ struct PluginManager::LoadedPlugin {
     // the slot vtable stays valid for the plugin's lifetime.
     std::vector<std::string>                  owned_strings;
     std::unique_ptr<orca_slot_profile_pack_t> profile_pack_vtable;
+
+    // Phase 3.2.6 — wasm plugin (kind=="wasm"). When non-null, this
+    // LoadedPlugin is wasm-backed: no dlopen handle, no fn_* exports. Its
+    // destructor calls orca_plugin_unregister automatically.
+    std::unique_ptr<wasm::WasmPlugin> wasm_plugin;
 };
 
 // ---------------------------------------------------------------------------
@@ -101,6 +109,11 @@ struct PluginManager::Impl {
 
     std::unordered_map<std::string, std::unique_ptr<LoadedPlugin>> plugins;
     std::vector<std::string>                                       load_order;
+
+    // Phase 3.2.6 — shared wasmtime engine. Lazily constructed on the
+    // first wasm plugin load so installs that never touch wasm don't
+    // pay the wasm_engine_new cost.
+    std::unique_ptr<wasm::WasmHost> wasm_host;
 };
 
 // ---------------------------------------------------------------------------
@@ -532,6 +545,64 @@ orca_error_code_t PluginManager::load_plugin(const std::filesystem::path& plugin
             impl_->plugins.emplace(id_copy, std::move(plugin));
         }
         log_line(2, ("loaded profile pack " + id_copy + " v" + version_copy).c_str());
+        return ORCA_OK;
+    }
+
+    // --- 2.6: wasm branch ------------------------------------------------
+    // Plugins shipping WebAssembly declare `"kind": "wasm"` in their
+    // manifest. The entry file is resolved the same way the native branch
+    // resolves binaries: <id>_<version>.wasm preferred, plain <id>.wasm
+    // as fallback. WasmPlugin::load runs the lifecycle handshake and the
+    // resulting unique_ptr is stashed on LoadedPlugin so unload_plugin can
+    // drop it (the destructor fires orca_plugin_unregister).
+    const bool is_wasm = j.value("kind", std::string{}) == "wasm";
+    if (is_wasm) {
+        std::filesystem::path wasm_path;
+        if (!plugin->version.empty()) {
+            const auto v = plugin_dir / (plugin->id + "_" + plugin->version + ".wasm");
+            if (std::filesystem::exists(v)) wasm_path = v;
+        }
+        if (wasm_path.empty()) {
+            const auto u = plugin_dir / (plugin->id + ".wasm");
+            if (std::filesystem::exists(u)) wasm_path = u;
+        }
+        if (wasm_path.empty()) {
+            log_line(4, ("wasm entry not found in " + plugin_dir.string()).c_str());
+            return ORCA_ERR_NOT_FOUND;
+        }
+
+        if (!impl_->wasm_host)
+            impl_->wasm_host = std::make_unique<wasm::WasmHost>();
+
+        wasm::WasmPlugin::Manifest wm;
+        wm.id          = plugin->id;
+        wm.version     = plugin->version;
+        wm.permissions = plugin->permissions;
+        wm.wasm_path   = wasm_path;
+
+        auto wp_res = wasm::WasmPlugin::load(*impl_->wasm_host, wm, impl_->session);
+        if (!wp_res.ok()) {
+            log_line(4, ("wasm plugin load failed for " + plugin->id +
+                         ": " + wp_res.error().message).c_str());
+            switch (wp_res.error().code) {
+                case ErrorCode::PermissionDenied: return ORCA_ERR_PERMISSION_DENIED;
+                case ErrorCode::InvalidArgument:  return ORCA_ERR_INVALID_ARGUMENT;
+                case ErrorCode::NotFound:         return ORCA_ERR_NOT_FOUND;
+                case ErrorCode::ParseError:       return ORCA_ERR_PARSE;
+                case ErrorCode::Unsupported:      return ORCA_ERR_UNSUPPORTED;
+                default:                          return ORCA_ERR_UNKNOWN;
+            }
+        }
+        plugin->wasm_plugin = std::move(wp_res).value();
+
+        std::string id_copy      = plugin->id;
+        std::string version_copy = plugin->version;
+        {
+            std::lock_guard<std::mutex> guard(impl_->mtx);
+            impl_->load_order.push_back(id_copy);
+            impl_->plugins.emplace(id_copy, std::move(plugin));
+        }
+        log_line(2, ("loaded wasm plugin " + id_copy + " v" + version_copy).c_str());
         return ORCA_OK;
     }
 
