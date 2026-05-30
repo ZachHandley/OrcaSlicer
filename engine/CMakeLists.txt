@@ -32,10 +32,27 @@ target_sources(libslic3r PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PluginRegistry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PlaceholderProvider.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PrinterAgentAdapter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/runtime/WasmHost.cpp
 )
 target_include_directories(libslic3r PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+# Phase 3.2.2 — Wasmtime runtime. The pre-built C-API tarball lands in
+# ${DESTDIR}/include + ${DESTDIR}/lib (see deps/Wasmtime/Wasmtime.cmake).
+# Required; if the dep tree is stale, re-run `cmake --build deps/build
+# --target dep_Wasmtime`.
+find_path(WASMTIME_INCLUDE_DIR wasmtime.h)
+find_library(WASMTIME_LIBRARY NAMES wasmtime)
+if (NOT WASMTIME_INCLUDE_DIR OR NOT WASMTIME_LIBRARY)
+    message(FATAL_ERROR
+        "Wasmtime C API not found. Build it via:\n"
+        "  cmake --build deps/build --target dep_Wasmtime\n"
+        "and re-run cmake. Looked for include=${WASMTIME_INCLUDE_DIR} "
+        "lib=${WASMTIME_LIBRARY}.")
+endif ()
+target_include_directories(libslic3r SYSTEM PRIVATE ${WASMTIME_INCLUDE_DIR})
+target_link_libraries(libslic3r PRIVATE ${WASMTIME_LIBRARY})
 
 # orca-engine-cli: the standalone canary proving the engine links and runs
 # without wxWidgets. Only built when engine tooling is requested.

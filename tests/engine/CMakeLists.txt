@@ -19,6 +19,7 @@ add_executable(${_TEST_NAME}_tests
     test_slot_printer_agent.cpp
     test_profile_pack.cpp
     test_plugin_reload.cpp
+    test_wasm_host.cpp
     )
 
 target_link_libraries(${_TEST_NAME}_tests test_common libslic3r Catch2::Catch2WithMain)
