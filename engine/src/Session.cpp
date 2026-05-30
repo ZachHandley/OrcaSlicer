@@ -128,6 +128,24 @@ Result<void> Session::unload_plugin(const std::string& plugin_id) {
         "Session::unload_plugin failed"}};
 }
 
+Result<void> Session::reload_plugin(const std::string& plugin_id) {
+    orca_error_code_t rc = impl_->manager.reload_plugin(plugin_id);
+    if (rc == ORCA_OK) return ok();
+    // Mirror load_plugin's full code mapping — reload re-runs the load
+    // sequence so any of its failure codes can propagate here.
+    ErrorCode code = ErrorCode::Unknown;
+    switch (rc) {
+        case ORCA_ERR_INVALID_ARGUMENT: code = ErrorCode::InvalidArgument; break;
+        case ORCA_ERR_NOT_FOUND:        code = ErrorCode::NotFound;        break;
+        case ORCA_ERR_ALREADY_EXISTS:   code = ErrorCode::AlreadyExists;   break;
+        case ORCA_ERR_IO:               code = ErrorCode::IoError;         break;
+        case ORCA_ERR_PARSE:            code = ErrorCode::ParseError;      break;
+        case ORCA_ERR_UNSUPPORTED:      code = ErrorCode::Unsupported;     break;
+        default:                        code = ErrorCode::Unknown;         break;
+    }
+    return Result<void>{Error{code, "Session::reload_plugin failed"}};
+}
+
 void Session::unload_all_plugins() {
     impl_->manager.unload_all();
 }

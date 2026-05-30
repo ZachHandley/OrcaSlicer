@@ -66,6 +66,7 @@ struct PluginManager::LoadedPlugin {
     std::string author;
     std::string description;
     uint64_t    permissions = 0;
+    std::filesystem::path source_dir;   ///< Where the plugin was loaded from (for reload).
 
 #if defined(_WIN32)
     HMODULE handle = nullptr;
@@ -443,6 +444,7 @@ orca_error_code_t PluginManager::load_plugin(const std::filesystem::path& plugin
     plugin->version     = j.value("version",     std::string{});
     plugin->author      = j.value("author",      std::string{});
     plugin->description = j.value("description", std::string{});
+    plugin->source_dir  = plugin_dir;
 
     if (j.contains("permissions") && j["permissions"].is_array()) {
         for (const auto& p : j["permissions"]) {
@@ -534,11 +536,26 @@ orca_error_code_t PluginManager::load_plugin(const std::filesystem::path& plugin
     }
 
     // --- 3. resolve entry binary path -----------------------------------
-    // Phase 1 convention: <plugin_dir>/<id><platform_ext>. Versioned
-    // filenames (lib<id>_<ver>.<ext>) arrive in Phase 3.1.
-    const auto entry_path = plugin_dir / (plugin->id + kPlatformExt);
-    if (!std::filesystem::exists(entry_path)) {
-        log_line(4, ("entry binary not found: " + entry_path.string()).c_str());
+    // Two conventions accepted, tried in order:
+    //   (a) <plugin_dir>/<id>_<version><platform_ext>  — versioned, lets a
+    //       plugin coexist with another build of itself in the same dir.
+    //   (b) <plugin_dir>/<id><platform_ext>           — unversioned fallback,
+    //       used by the loader test fixture and simple single-binary plugins.
+    std::filesystem::path entry_path;
+    if (!plugin->version.empty()) {
+        auto versioned = plugin_dir / (plugin->id + "_" + plugin->version + kPlatformExt);
+        if (std::filesystem::exists(versioned))
+            entry_path = versioned;
+    }
+    if (entry_path.empty()) {
+        const auto unversioned = plugin_dir / (plugin->id + kPlatformExt);
+        if (std::filesystem::exists(unversioned))
+            entry_path = unversioned;
+    }
+    if (entry_path.empty()) {
+        log_line(4, ("entry binary not found in " + plugin_dir.string()
+                     + " (tried " + plugin->id + "_" + plugin->version + kPlatformExt
+                     + " and " + plugin->id + kPlatformExt + ")").c_str());
         return ORCA_ERR_NOT_FOUND;
     }
 
@@ -654,6 +671,27 @@ orca_error_code_t PluginManager::unload_plugin(const std::string& plugin_id)
 
     log_line(2, ("unloaded plugin " + plugin_id).c_str());
     return ORCA_OK;
+}
+
+// ---------------------------------------------------------------------------
+// reload_plugin — Phase 3.1 convenience: snapshot the source dir, run a full
+// unload, then load the same directory back. Returns NotFound if plugin_id
+// is not currently loaded.
+// ---------------------------------------------------------------------------
+orca_error_code_t PluginManager::reload_plugin(const std::string& plugin_id)
+{
+    std::filesystem::path source_dir;
+    {
+        std::lock_guard<std::mutex> guard(impl_->mtx);
+        auto it = impl_->plugins.find(plugin_id);
+        if (it == impl_->plugins.end())
+            return ORCA_ERR_NOT_FOUND;
+        source_dir = it->second->source_dir;
+    }
+    const auto unload_rc = unload_plugin(plugin_id);
+    if (unload_rc != ORCA_OK)
+        return unload_rc;
+    return load_plugin(source_dir);
 }
 
 // ---------------------------------------------------------------------------

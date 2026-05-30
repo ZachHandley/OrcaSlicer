@@ -90,6 +90,10 @@ public:
     // Unload by id; ORCA_ERR_NOT_FOUND if not loaded.
     Result<void> unload_plugin(const std::string& plugin_id);
 
+    /// Convenience: unload + reload from the original directory. Returns
+    /// NotFound if plugin_id is not currently loaded.
+    Result<void> reload_plugin(const std::string& plugin_id);
+
     void unload_all_plugins();
 
     std::vector<std::string> loaded_plugin_ids() const;

@@ -43,6 +43,10 @@ public:
     // Unload by id. ORCA_ERR_NOT_FOUND if no such plugin loaded.
     orca_error_code_t unload_plugin(const std::string& plugin_id);
 
+    /// Phase 3.1 — convenience: unload + reload from the cached source dir.
+    /// Returns NotFound if plugin_id is not currently loaded.
+    orca_error_code_t reload_plugin(const std::string& plugin_id);
+
     // Unload all in reverse load order.
     void unload_all();
 
