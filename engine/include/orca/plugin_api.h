@@ -93,6 +93,48 @@ typedef enum {
     ORCA_SLOT_RAW_SUBSCRIBER       = 0x1000
 } orca_slot_kind_t;
 
+/* ============ Pipeline slot vtables (Phase 2.1.1) ============
+ *
+ * Observer slots are pure notification — fired for every pipeline step.
+ * Interceptor slots return a disposition that gates the step. Both are
+ * keyed by the same orca_pipeline_step_t enum.
+ *
+ * The C++ mirrors of these enums live in <orca/PipelineSteps.hpp> as
+ * orca::PipelineStep and orca::PipelineDisposition; their underlying
+ * values are kept identical so a static_cast across the boundary in
+ * engine/src/Slicer.cpp is well-defined. */
+typedef enum {
+    ORCA_STEP_BEFORE_SLICE        = 1,
+    ORCA_STEP_AFTER_PERIMETERS    = 2,
+    ORCA_STEP_AFTER_INFILL        = 3,
+    ORCA_STEP_AFTER_IRONING       = 4,
+    ORCA_STEP_AFTER_SUPPORTS      = 5,
+    ORCA_STEP_BEFORE_WIPE_TOWER   = 6,
+    ORCA_STEP_AFTER_SKIRT_BRIM    = 7,
+    ORCA_STEP_BEFORE_GCODE_EXPORT = 8,
+    ORCA_STEP_AFTER_GCODE_EXPORT  = 9
+} orca_pipeline_step_t;
+
+typedef enum {
+    ORCA_DISPOSITION_PROCEED = 0,
+    ORCA_DISPOSITION_SKIP    = 1,
+    ORCA_DISPOSITION_ABORT   = 2
+} orca_disposition_t;
+
+typedef struct {
+    uint32_t struct_size;
+    void (*on_step)(orca_pipeline_step_t step,
+                    uint64_t              slice_handle,
+                    void*                 user_data);
+} orca_slot_pipeline_observer_t;
+
+typedef struct {
+    uint32_t struct_size;
+    orca_disposition_t (*on_step)(orca_pipeline_step_t step,
+                                  uint64_t              slice_handle,
+                                  void*                 user_data);
+} orca_slot_pipeline_interceptor_t;
+
 /* ============ Manifest + permissions ============ */
 
 /* Permission bits declared by the plugin in orca_plugin_manifest_t.permissions.

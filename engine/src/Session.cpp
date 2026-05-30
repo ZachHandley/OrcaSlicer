@@ -139,4 +139,12 @@ std::size_t Session::registered_slot_count() const {
     return impl_->registry.slot_count();
 }
 
+PluginRegistry& Session::plugin_registry() {
+    return impl_->registry;
+}
+
+const PluginRegistry& Session::plugin_registry() const {
+    return impl_->registry;
+}
+
 } // namespace orca

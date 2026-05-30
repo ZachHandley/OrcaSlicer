@@ -12,6 +12,9 @@
 #include "orca/Session.hpp"
 #include "orca/Events.hpp"
 #include "orca/EventTypes.hpp"
+#include "orca/PipelineSteps.hpp"
+#include "orca/plugin_api.h"
+#include "PluginRegistry.hpp"
 
 #include <libslic3r/Model.hpp>
 #include <libslic3r/Print.hpp>
@@ -161,6 +164,51 @@ void Slicer::run_slice(Slic3r::Model work_model) {
     // out onto this session's bus tagged with the current slice handle.
     if (impl_->session != nullptr) {
         print->set_events_sink(&impl_->session->events(), impl_->current_handle);
+    }
+
+    // --- Phase 2.1.2d: snapshot pipeline observer + interceptor slots into the
+    // Print's std::function hooks. Snapshot at slice-start so plugins that
+    // (un)register mid-slice don't perturb the in-flight slice — same pattern as
+    // orca::Events subscriber dispatch. ---
+    if (impl_->session != nullptr) {
+        auto& registry = impl_->session->plugin_registry();
+        const std::uint64_t slice_handle = impl_->current_handle;
+
+        auto observers = registry.snapshot(ORCA_SLOT_PIPELINE_OBSERVER);
+        if (!observers.empty()) {
+            print->set_step_observer(
+                [snap = std::move(observers), slice_handle](orca::PipelineStep step) {
+                    const auto c_step = static_cast<orca_pipeline_step_t>(step);
+                    for (const auto& e : snap) {
+                        const auto* vt = static_cast<const orca_slot_pipeline_observer_t*>(e.vtable);
+                        if (vt && vt->on_step)
+                            vt->on_step(c_step, slice_handle, e.user_data);
+                    }
+                });
+        }
+
+        auto interceptors = registry.snapshot(ORCA_SLOT_PIPELINE_INTERCEPTOR);
+        if (!interceptors.empty()) {
+            print->set_step_interceptor(
+                [snap = std::move(interceptors), slice_handle](orca::PipelineStep step) {
+                    const auto c_step = static_cast<orca_pipeline_step_t>(step);
+                    orca::PipelineDisposition fold = orca::PipelineDisposition::Proceed;
+                    for (const auto& e : snap) {
+                        const auto* vt = static_cast<const orca_slot_pipeline_interceptor_t*>(e.vtable);
+                        if (!vt || !vt->on_step)
+                            continue;
+                        const auto d_c = vt->on_step(c_step, slice_handle, e.user_data);
+                        const auto d   = static_cast<orca::PipelineDisposition>(d_c);
+                        if (d == orca::PipelineDisposition::Abort) {
+                            fold = orca::PipelineDisposition::Abort;        // sticky-Abort wins
+                        } else if (d == orca::PipelineDisposition::Skip
+                                   && fold == orca::PipelineDisposition::Proceed) {
+                            fold = orca::PipelineDisposition::Skip;          // any-Skip beats Proceed
+                        }
+                    }
+                    return fold;
+                });
+        }
     }
 
     try {

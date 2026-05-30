@@ -12,6 +12,7 @@ add_executable(${_TEST_NAME}_tests
     test_plugin_loader.cpp
     test_plugin_registry.cpp
     test_pipeline_events.cpp
+    test_slot_pipeline.cpp
     )
 
 target_link_libraries(${_TEST_NAME}_tests test_common libslic3r Catch2::Catch2WithMain)

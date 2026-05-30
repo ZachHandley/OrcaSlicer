@@ -22,6 +22,13 @@
 // include path, so consumers that actually publish events include it).
 namespace orca { class Events; }
 
+// Phase 2.1.2a — pipeline-step enums for the in-process plugin dispatch
+// path (StepObserver / StepInterceptor below). The header is tiny (just
+// the two enum classes + <cstdint>) and engine/include is already PUBLIC
+// on libslic3r, so this is cheaper and safer than forward-declaring
+// scoped enums.
+#include <orca/PipelineSteps.hpp>
+
 namespace Slic3r {
 
 enum StringExceptionType {
@@ -495,6 +502,17 @@ public:
         m_events_sink = sink;
         m_events_slice_handle = handle;
     }
+    /// Step-by-step pipeline observer — fire-and-forget. Invoked just before
+    /// each typed pipeline event publishes (BeforeSlice, AfterPerimeters, …).
+    /// Set by engine::Slicer from a PluginRegistry snapshot; libslic3r itself
+    /// only calls it.
+    using StepObserver    = std::function<void(orca::PipelineStep)>;
+    /// Step-by-step interceptor returning a disposition (Proceed/Skip/Abort).
+    /// Same dispatch site as the observer; called immediately after it.
+    using StepInterceptor = std::function<orca::PipelineDisposition(orca::PipelineStep)>;
+
+    void set_step_observer(StepObserver fn)    { m_step_observer    = std::move(fn); }
+    void set_step_interceptor(StepInterceptor fn) { m_step_interceptor = std::move(fn); }
     // Calls a registered callback to update the status, or print out the default message.
     void                    set_status(int percent, const std::string &message, unsigned int flags = SlicingStatus::DEFAULT, int warning_step = -1) const;
 
@@ -586,6 +604,12 @@ protected:
     // null: no behavior change for libslic3r-only consumers.
     orca::Events*                           m_events_sink = nullptr;
     std::uint64_t                           m_events_slice_handle = 0;
+
+    // Phase 2.1.2a — in-process plugin step hooks. Default empty: no
+    // behavior change. Print.cpp will invoke these at each pipeline-stage
+    // publish point via a small helper (next wave).
+    StepObserver    m_step_observer{};
+    StepInterceptor m_step_interceptor{};
 
 private:
     std::atomic<CancelStatus>               m_cancel_status;

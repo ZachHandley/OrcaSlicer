@@ -28,6 +28,8 @@ class Model;
 
 namespace orca {
 
+class PluginRegistry;
+
 // Top-level entry point to the orca engine. Owns the four services and the
 // event bus; all engine state lives behind this object. A single long-lived
 // instance is the expected usage; multi-instance is supported but untested.
@@ -93,6 +95,13 @@ public:
 
     // Read-only count of registered slots across all kinds. Useful for tests.
     std::size_t registered_slot_count() const;
+
+    /// Direct access to the slot dispatch table — engine-internal type;
+    /// callers must include "engine/src/PluginRegistry.hpp" to use it.
+    /// Used by Slicer to snapshot pipeline observer/interceptor slots
+    /// at slice-start time.
+    PluginRegistry&       plugin_registry();
+    const PluginRegistry& plugin_registry() const;
 
 private:
     Session();

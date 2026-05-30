@@ -1130,6 +1130,12 @@ private:
     void                _make_wipe_tower();
     void                finalize_first_layer_convex_hull();
 
+    // Phase 2.1.2c — dispatch the step observer + interceptor (if any).
+    // Returns true if the step body should run, false if it was Skip-ped.
+    // Throws via cancel_internal+throw_if_canceled on Abort, exiting the
+    // pipeline through the existing Slic3r::CanceledException path.
+    bool                dispatch_step(orca::PipelineStep step);
+
     // Islands of objects and their supports extruded at the 1st layer.
     Polygons            first_layer_islands() const;
 
