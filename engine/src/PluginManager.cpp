@@ -16,6 +16,8 @@
 
 #include "orca/Session.hpp"
 #include "orca/c_api.h"
+#include "orca/PlaceholderProvider.hpp"
+#include "libslic3r/PlaceholderParser.hpp"
 
 #include "nlohmann/json.hpp"
 
@@ -25,6 +27,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <utility>
 
@@ -253,21 +256,38 @@ extern "C" orca_error_code_t host_load_profile_pack_thunk(const char* /*dir*/)
 }
 
 extern "C" orca_error_code_t host_placeholder_set_string_thunk(
-    const char* /*name*/, const char* /*value*/)
+    const char* name, const char* value)
 {
-    return ORCA_ERR_UNSUPPORTED; // Phase 2.3.
+    if (!name || !value)  return ORCA_ERR_INVALID_ARGUMENT;
+    auto* pp = orca::placeholder_tls::current();
+    if (!pp)              return ORCA_ERR_INVALID_ARGUMENT;
+    pp->set(name, std::string{value});
+    return ORCA_OK;
 }
 
 extern "C" orca_error_code_t host_placeholder_set_int_thunk(
-    const char* /*name*/, int64_t /*value*/)
+    const char* name, int64_t value)
 {
-    return ORCA_ERR_UNSUPPORTED; // Phase 2.3.
+    if (!name)            return ORCA_ERR_INVALID_ARGUMENT;
+    auto* pp = orca::placeholder_tls::current();
+    if (!pp)              return ORCA_ERR_INVALID_ARGUMENT;
+    // PlaceholderParser::set(string, int) is the closest available overload.
+    // Reject values outside int range so we never silently truncate.
+    if (value < static_cast<int64_t>(std::numeric_limits<int>::min()) ||
+        value > static_cast<int64_t>(std::numeric_limits<int>::max()))
+        return ORCA_ERR_INVALID_ARGUMENT;
+    pp->set(name, static_cast<int>(value));
+    return ORCA_OK;
 }
 
 extern "C" orca_error_code_t host_placeholder_set_float_thunk(
-    const char* /*name*/, double /*value*/)
+    const char* name, double value)
 {
-    return ORCA_ERR_UNSUPPORTED; // Phase 2.3.
+    if (!name)            return ORCA_ERR_INVALID_ARGUMENT;
+    auto* pp = orca::placeholder_tls::current();
+    if (!pp)              return ORCA_ERR_INVALID_ARGUMENT;
+    pp->set(name, value);
+    return ORCA_OK;
 }
 
 extern "C" orca_error_code_t host_register_printer_agent_thunk(

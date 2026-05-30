@@ -915,6 +915,15 @@ public:
     // snapshot. The std::function returns orca_error_code_t (ORCA_OK on success).
     using GCodeFilter = std::function<orca_error_code_t(const std::string&)>;
     void set_gcode_filter_callback(GCodeFilter fn) { m_gcode_filter = std::move(fn); }
+    // PlaceholderParser variable provider (Phase 2.3.1) — runs at the very
+    // top of Print::export_gcode, BEFORE GCode::do_export captures the parser.
+    // Installed by engine::Slicer from a PluginRegistry snapshot of
+    // ORCA_SLOT_PLACEHOLDER_PROVIDER slots. The closure returns ORCA_OK on
+    // success; any other code aborts the export.
+    using PlaceholderProvider = std::function<orca_error_code_t(std::uint64_t /*slice_handle*/)>;
+    void set_placeholder_provider_callback(PlaceholderProvider fn) {
+        m_placeholder_provider = std::move(fn);
+    }
     // Exports G-code into a file name based on the path_template, returns the file path of the generated G-code file.
     // If preview_data is not null, the preview_data is filled in for the G-code visualization (not used by the command line Slic3r).
     std::string         export_gcode(const std::string& path_template, GCodeProcessorResult* result, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
@@ -1144,6 +1153,9 @@ private:
 
     // Phase 2.2.1 — installed gcode filter (may be empty).
     GCodeFilter         m_gcode_filter{};
+
+    // Phase 2.3.1 — installed placeholder provider (may be empty).
+    PlaceholderProvider m_placeholder_provider{};
 
     // Islands of objects and their supports extruded at the 1st layer.
     Polygons            first_layer_islands() const;

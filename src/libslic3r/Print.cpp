@@ -41,6 +41,7 @@
 
 #include "orca/Events.hpp"
 #include "orca/EventTypes.hpp"
+#include "orca/PlaceholderProvider.hpp"
 
 #include <codecvt>
 
@@ -2625,6 +2626,16 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
 // It is up to the caller to show an error message.
 std::string Print::export_gcode(const std::string& path_template, GCodeProcessorResult* result, ThumbnailsGeneratorCallback thumbnail_cb)
 {
+    // Phase 2.3.1 — fire the placeholder provider slot chain BEFORE GCode::do_export
+    // captures the parser. Any non-OK rc aborts the export.
+    if (m_placeholder_provider) {
+        // m_placeholder_parser is protected on PrintBase; the public accessor
+        // returns const& because callers normally only render templates.
+        orca::placeholder_tls::Scope guard(&m_placeholder_parser);
+        const auto rc = m_placeholder_provider(m_events_slice_handle);
+        if (rc != ORCA_OK)
+            throw Slic3r::RuntimeError("orca: placeholder provider returned an error");
+    }
     // output everything to a G-code file
     // The following call may die if the filename_format template substitution fails.
     std::string path = this->output_filepath(path_template);

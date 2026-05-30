@@ -228,6 +228,26 @@ void Slicer::run_slice(Slic3r::Model work_model) {
                     return ORCA_OK;
                 });
         }
+
+        // Phase 2.3.2: snapshot the placeholder provider slot. Fires once at the top of
+        // Print::export_gcode, BEFORE GCode::do_export captures the parser. Each provider
+        // in the chain may push variables via the host's placeholder_set_{string,int,float}
+        // vtable entries. Any non-OK rc aborts the export.
+        auto providers = registry.snapshot(ORCA_SLOT_PLACEHOLDER_PROVIDER);
+        if (!providers.empty()) {
+            print->set_placeholder_provider_callback(
+                [snap = std::move(providers)](std::uint64_t slice_handle) -> orca_error_code_t {
+                    for (const auto& e : snap) {
+                        const auto* vt = static_cast<const orca_slot_placeholder_provider_t*>(e.vtable);
+                        if (!vt || !vt->on_provide)
+                            continue;
+                        const auto rc = vt->on_provide(slice_handle, e.user_data);
+                        if (rc != ORCA_OK)
+                            return rc;
+                    }
+                    return ORCA_OK;
+                });
+        }
     }
 
     try {

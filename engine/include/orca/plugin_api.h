@@ -155,6 +155,27 @@ typedef struct {
                                 void*       user_data);
 } orca_slot_gcode_filter_t;
 
+/* ------------------------------------------------------------
+ * PlaceholderParser variable provider slot (Phase 2.3.1)
+ *
+ * Provider slots fire once per slice, BEFORE GCode::do_export captures the
+ * parser. The plugin's on_provide callback should use the host vtable's
+ * placeholder_set_{string,int,float} entries to push variables into the
+ * active Print::placeholder_parser(). Variables set this way are reachable
+ * from machine_start_gcode / machine_end_gcode and other PlaceholderParser-
+ * rendered templates.
+ *
+ * Multiple providers fire in PluginRegistry ascending-priority order. Any
+ * non-OK rc aborts the slice (mirrors orca_slot_gcode_filter_t).
+ *
+ * Requires permission bit ORCA_PERM_SETTINGS_WRITE.
+ * ------------------------------------------------------------ */
+typedef struct {
+    uint32_t struct_size;
+    orca_error_code_t (*on_provide)(uint64_t slice_handle,
+                                    void*    user_data);
+} orca_slot_placeholder_provider_t;
+
 /* ============ Manifest + permissions ============ */
 
 /* Permission bits declared by the plugin in orca_plugin_manifest_t.permissions.

@@ -30,6 +30,7 @@ target_sources(libslic3r PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/c_api.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PluginManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/PluginRegistry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/PlaceholderProvider.cpp
 )
 target_include_directories(libslic3r PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
