@@ -17,11 +17,13 @@
 #include "orca/EventTypes.hpp"
 #include "orca/Session.hpp"
 
+#include "libslic3r/Config.hpp"
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/PrintConfig.hpp"
 
 #include <cassert>
+#include <exception>
 #include <memory>
 #include <string>
 
@@ -176,7 +178,17 @@ std::vector<std::string> Presets::filament_names() const {
 }
 
 std::vector<VendorRef> Presets::vendors() const {
-    return {};
+    if (!impl_->bundle) return {};
+    std::vector<VendorRef> out;
+    out.reserve(impl_->bundle->vendors.size());
+    for (const auto& kv : impl_->bundle->vendors) {
+        VendorRef ref;
+        ref.id     = kv.second.id;
+        ref.name   = kv.second.name;
+        ref.is_bbl = (kv.second.id == "BBL");
+        out.push_back(std::move(ref));
+    }
+    return out;
 }
 
 std::vector<PresetRef> Presets::physical_printer_list() const {
@@ -232,11 +244,109 @@ Result<std::vector<PresetSubstitution>> Presets::load_user_presets(
 }
 
 Result<LoadVendorResult> Presets::load_vendor_configs_from_json(
-    const std::filesystem::path& /*path*/,
-    SubstitutionRule             /*rule*/)
+    const std::filesystem::path& path,
+    SubstitutionRule             rule)
 {
-    return err<LoadVendorResult>(
-        ErrorCode::NotImplemented, "Presets::load_vendor_configs_from_json not yet implemented");
+    if (!impl_->bundle)
+        return err<LoadVendorResult>(ErrorCode::InvalidState,
+                                     "Presets has no PresetBundle attached");
+
+    // Resolve vendor_name by locating the single root JSON in `path`. Slic3r's
+    // PresetBundle::load_vendor_configs_from_json expects `<path>/<vendor>.json`
+    // alongside the `machine/`, `process/`, `filament/` subdirs — pick the JSON
+    // up-front so plugin profile packs whose directory name differs from the
+    // vendor stem still load. Falls back to the directory basename if the dir
+    // can't be enumerated (covers the case where the caller already knows the
+    // dir name matches the vendor).
+    std::string vendor_name;
+    {
+        std::error_code ec;
+        if (std::filesystem::is_directory(path, ec)) {
+            std::filesystem::path picked;
+            std::size_t           json_count = 0;
+            for (const auto& entry : std::filesystem::directory_iterator(path, ec)) {
+                if (ec) break;
+                if (!entry.is_regular_file()) continue;
+                if (entry.path().extension() == ".json") {
+                    picked = entry.path();
+                    ++json_count;
+                    if (json_count > 1) break;
+                }
+            }
+            if (json_count == 1)
+                vendor_name = picked.stem().string();
+        }
+        if (vendor_name.empty())
+            vendor_name = path.filename().string();
+    }
+
+    if (vendor_name.empty())
+        return err<LoadVendorResult>(ErrorCode::InvalidArgument,
+                                     "could not determine vendor name from path: " + path.string());
+
+    // Map orca::SubstitutionRule -> Slic3r::ForwardCompatibilitySubstitutionRule.
+    // The Slic3r enum is unscoped (defined in libslic3r/Config.hpp:218); names
+    // match 1:1 with the orca enum (Disable / Enable / EnableSilent /
+    // EnableSystemSilent), with EnableSilentDisableSystem as a Slic3r-only
+    // extension we don't surface.
+    Slic3r::ForwardCompatibilitySubstitutionRule slic3r_rule = Slic3r::Disable;
+    switch (rule) {
+        case SubstitutionRule::Disable:            slic3r_rule = Slic3r::Disable;            break;
+        case SubstitutionRule::Enable:             slic3r_rule = Slic3r::Enable;             break;
+        case SubstitutionRule::EnableSilent:       slic3r_rule = Slic3r::EnableSilent;       break;
+        case SubstitutionRule::EnableSystemSilent: slic3r_rule = Slic3r::EnableSystemSilent; break;
+    }
+
+    // Map Slic3r::Preset::Type -> orca::PresetType for substitutions translation.
+    auto map_preset_type = [](Slic3r::Preset::Type t) -> PresetType {
+        switch (t) {
+            case Slic3r::Preset::TYPE_PRINT:            return PresetType::Print;
+            case Slic3r::Preset::TYPE_SLA_PRINT:        return PresetType::SlaPrint;
+            case Slic3r::Preset::TYPE_FILAMENT:         return PresetType::Filament;
+            case Slic3r::Preset::TYPE_SLA_MATERIAL:     return PresetType::SlaMaterial;
+            case Slic3r::Preset::TYPE_PRINTER:          return PresetType::Printer;
+            case Slic3r::Preset::TYPE_PHYSICAL_PRINTER: return PresetType::PhysicalPrinter;
+            default:                                    return PresetType::Print;
+        }
+    };
+
+    // LoadVendorOnly: load the vendor + its sub-presets without resetting the
+    // existing bundle and without touching user/system bookkeeping. Plugin
+    // profile packs are additive; the caller is responsible for any reset.
+    std::pair<Slic3r::PresetsConfigSubstitutions, std::size_t> raw_result;
+    try {
+        raw_result = impl_->bundle->load_vendor_configs_from_json(
+            path.string(),
+            vendor_name,
+            Slic3r::PresetBundle::LoadVendorOnly,
+            slic3r_rule);
+    } catch (const Slic3r::ConfigurationError& e) {
+        return err<LoadVendorResult>(ErrorCode::InvalidArgument,
+                                     std::string{"vendor config error: "} + e.what());
+    } catch (const std::exception& e) {
+        return err<LoadVendorResult>(ErrorCode::Unknown,
+                                     std::string{"vendor config load failed: "} + e.what());
+    }
+
+    LoadVendorResult result;
+    result.presets_loaded = raw_result.second;
+
+    // Flatten Slic3r's per-preset substitution list into the engine-flat shape
+    // (one orca::PresetSubstitution per opt-key change).
+    for (const Slic3r::PresetConfigSubstitutions& entry : raw_result.first) {
+        const PresetType type = map_preset_type(entry.preset_type);
+        for (const Slic3r::ConfigSubstitution& sub : entry.substitutions) {
+            PresetSubstitution out;
+            out.preset_type = type;
+            out.preset_name = entry.preset_name;
+            out.opt_key     = sub.opt_def ? sub.opt_def->opt_key : std::string{};
+            out.old_value   = sub.old_value;
+            out.new_value   = sub.new_value ? sub.new_value->serialize() : std::string{};
+            result.substitutions.push_back(std::move(out));
+        }
+    }
+
+    return ok(std::move(result));
 }
 
 Result<void> Presets::save_changes_for_preset(PresetType /*type*/, std::string_view /*name*/) {

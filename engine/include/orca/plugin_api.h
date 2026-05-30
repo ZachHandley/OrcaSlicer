@@ -290,6 +290,24 @@ typedef struct {
     orca_error_code_t (*cancel_print)(void* instance);
 } orca_slot_printer_agent_t;
 
+/* ------------------------------------------------------------
+ * Profile pack slot (Phase 2.5.2)
+ *
+ * Profile packs are DATA-ONLY plugins — the plugin's manifest declares
+ * `"provides": { "profile_dir": "<relative-path>" }` and PluginManager loads
+ * the vendor configs through the engine's Presets API. No code runs from the
+ * plugin's side; the slot exists purely so consumers can enumerate which
+ * vendor profile packs are installed.
+ *
+ * Requires permission bit ORCA_PERM_PROFILES_INSTALL.
+ * ------------------------------------------------------------ */
+typedef struct {
+    uint32_t    struct_size;
+    /* Absolute filesystem path to the profile directory the engine loaded.
+       Stable for the lifetime of the plugin registration. */
+    const char* profile_dir;
+} orca_slot_profile_pack_t;
+
 /* ============ Manifest + permissions ============ */
 
 /* Permission bits declared by the plugin in orca_plugin_manifest_t.permissions.

@@ -3,6 +3,7 @@ get_filename_component(_TEST_NAME ${CMAKE_CURRENT_LIST_DIR} NAME)
 # Build the fixture plugin used by test_plugin_loader.cpp first, so the engine
 # tests target can depend on it.
 add_subdirectory(fixtures/loader_plugin)
+add_subdirectory(fixtures/profile_pack)
 
 add_executable(${_TEST_NAME}_tests
     ${_TEST_NAME}_tests.cpp
@@ -16,6 +17,7 @@ add_executable(${_TEST_NAME}_tests
     test_slot_gcode_filter.cpp
     test_slot_placeholder_provider.cpp
     test_slot_printer_agent.cpp
+    test_profile_pack.cpp
     )
 
 target_link_libraries(${_TEST_NAME}_tests test_common libslic3r Catch2::Catch2WithMain)

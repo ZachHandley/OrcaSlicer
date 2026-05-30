@@ -76,6 +76,12 @@ struct PluginManager::LoadedPlugin {
     orca_plugin_register_fn_t              fn_register   = nullptr;
     orca_plugin_unregister_fn_t            fn_unregister = nullptr;
     orca_plugin_check_debug_consistent_fn_t fn_check_debug = nullptr;
+
+    // Data-only (profile pack) plugins: no entry binary, no exports. The
+    // pack dir path is heap-stored in owned_strings so the c_str() handed to
+    // the slot vtable stays valid for the plugin's lifetime.
+    std::vector<std::string>                  owned_strings;
+    std::unique_ptr<orca_slot_profile_pack_t> profile_pack_vtable;
 };
 
 // ---------------------------------------------------------------------------
@@ -250,9 +256,32 @@ extern "C" orca_presets_t* host_presets_mut_thunk(void)
         reinterpret_cast<orca_session_t*>(impl->session));
 }
 
-extern "C" orca_error_code_t host_load_profile_pack_thunk(const char* /*dir*/)
+extern "C" orca_error_code_t host_load_profile_pack_thunk(const char* dir)
 {
-    return ORCA_ERR_UNSUPPORTED; // Phase 2.
+    // Forward into Presets::load_vendor_configs_from_json with the silent rule:
+    // plugin packs are additive and should not throw on unknown option values.
+    // The caller (plugin) only needs OK/non-OK here — the underlying
+    // substitution list is consumed by the engine-side bundle directly.
+    if (!dir || !*dir) return ORCA_ERR_INVALID_ARGUMENT;
+    auto* impl = s_instance.load(std::memory_order_acquire);
+    if (!impl || !impl->session) return ORCA_ERR_UNKNOWN;
+    try {
+        auto result = impl->session->presets().load_vendor_configs_from_json(
+            std::filesystem::path{dir},
+            orca::SubstitutionRule::EnableSilent);
+        if (result.ok()) return ORCA_OK;
+        switch (result.error().code) {
+            case orca::ErrorCode::InvalidArgument: return ORCA_ERR_INVALID_ARGUMENT;
+            case orca::ErrorCode::NotFound:        return ORCA_ERR_NOT_FOUND;
+            case orca::ErrorCode::IoError:         return ORCA_ERR_IO;
+            case orca::ErrorCode::ParseError:      return ORCA_ERR_PARSE;
+            case orca::ErrorCode::Unsupported:     return ORCA_ERR_UNSUPPORTED;
+            case orca::ErrorCode::NotImplemented:  return ORCA_ERR_UNSUPPORTED;
+            default:                               return ORCA_ERR_UNKNOWN;
+        }
+    } catch (...) {
+        return ORCA_ERR_UNKNOWN;
+    }
 }
 
 extern "C" orca_error_code_t host_placeholder_set_string_thunk(
@@ -429,6 +458,79 @@ orca_error_code_t PluginManager::load_plugin(const std::filesystem::path& plugin
             log_line(3, ("plugin already loaded: " + plugin->id).c_str());
             return ORCA_ERR_ALREADY_EXISTS;
         }
+    }
+
+    // --- 2.5: data-only branch (profile pack plugin) --------------------
+    // Plugins shipping only profile data — no native code — declare
+    // `"provides": { "profile_dir": "..." }` and OMIT the entry binary.
+    // PluginManager loads the profile pack via the engine Presets API and
+    // registers an ORCA_SLOT_PROFILE_PACK slot whose vtable carries the
+    // absolute dir path (heap-owned via plugin->owned_strings).
+    if (j.contains("provides") && j["provides"].is_object()
+        && j["provides"].contains("profile_dir") && j["provides"]["profile_dir"].is_string())
+    {
+        const std::string rel = j["provides"]["profile_dir"].get<std::string>();
+        const auto abs_dir = (rel.empty() || std::filesystem::path{rel}.is_absolute())
+                             ? std::filesystem::path{rel}
+                             : (plugin_dir / rel);
+        if (!std::filesystem::is_directory(abs_dir)) {
+            log_line(4, ("profile pack dir not found: " + abs_dir.string()).c_str());
+            return ORCA_ERR_NOT_FOUND;
+        }
+
+        if (impl_->session == nullptr) {
+            log_line(4, "no session attached — cannot load profile pack");
+            return ORCA_ERR_UNSUPPORTED;
+        }
+
+        // Load the vendor configs through the engine Presets API.
+        auto load_result = impl_->session->presets().load_vendor_configs_from_json(
+            abs_dir, orca::SubstitutionRule::EnableSilent);
+        if (!load_result.ok()) {
+            log_line(4, ("profile pack load failed: " + load_result.error().message).c_str());
+            return ORCA_ERR_IO;
+        }
+
+        // Stash the path string somewhere whose lifetime matches the plugin
+        // registration so the slot vtable's profile_dir pointer stays valid
+        // until unload.
+        plugin->owned_strings.push_back(abs_dir.string());
+        const std::string& stable_dir = plugin->owned_strings.back();
+
+        // Allocate the slot vtable on the heap (lifetime tied to LoadedPlugin).
+        auto vt = std::make_unique<orca_slot_profile_pack_t>();
+        vt->struct_size = sizeof(*vt);
+        vt->profile_dir = stable_dir.c_str();
+
+        if (impl_->registry) {
+            impl_->registry->set_current_plugin_id(plugin->id);
+            const auto slot_id = impl_->registry->add_slot(
+                ORCA_SLOT_PROFILE_PACK,
+                vt.get(),
+                /*user_data=*/nullptr,
+                /*priority=*/0);
+            impl_->registry->clear_current_plugin_id();
+            if (slot_id == 0) {
+                log_line(4, "profile pack slot registration failed");
+                return ORCA_ERR_UNKNOWN;
+            }
+        }
+
+        // Transfer vtable ownership to the LoadedPlugin so it dies with the
+        // plugin record (unload tears slots down per-plugin via PluginRegistry).
+        plugin->profile_pack_vtable = std::move(vt);
+
+        // No dlopen. No fn_* exports. Just register the plugin record so
+        // unload_plugin can find it.
+        std::string id_copy = plugin->id;
+        std::string version_copy = plugin->version;
+        {
+            std::lock_guard<std::mutex> guard(impl_->mtx);
+            impl_->load_order.push_back(id_copy);
+            impl_->plugins.emplace(id_copy, std::move(plugin));
+        }
+        log_line(2, ("loaded profile pack " + id_copy + " v" + version_copy).c_str());
+        return ORCA_OK;
     }
 
     // --- 3. resolve entry binary path -----------------------------------
