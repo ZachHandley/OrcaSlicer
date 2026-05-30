@@ -44,6 +44,26 @@ public:
     Result<std::int32_t> call_i64_to_i32(const std::string& fn_name,
                                          std::int64_t arg);
 
+    /// Invoke an exported function with one i32 argument returning i32.
+    /// Used by WasmPlugin for orca_plugin_check_debug_consistent.
+    Result<std::int32_t> call_i32_to_i32(const std::string& fn_name,
+                                         std::int32_t arg);
+
+    /// Invoke (i32, i64) -> i32. Used by WasmPlugin for
+    /// orca_plugin_register(abi_version, registry_handle).
+    Result<std::int32_t> call_i32_i64_to_i32(const std::string& fn_name,
+                                             std::int32_t arg0,
+                                             std::int64_t arg1);
+
+    /// Invoke a parameterless void-returning export. Used by WasmPlugin
+    /// for orca_plugin_unregister.
+    Result<void> call_void(const std::string& fn_name);
+
+    /// True if `fn_name` is exported as a function. Lets WasmPlugin probe
+    /// optional exports (check_debug_consistent, unregister) without
+    /// triggering a "wasm export not found" Result error.
+    bool has_export(const std::string& fn_name) const;
+
 private:
     std::unique_ptr<Impl> impl_;
 };

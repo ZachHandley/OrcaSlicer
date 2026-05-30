@@ -18,6 +18,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -82,6 +83,130 @@ WasmInstance::~WasmInstance() = default;
 
 std::size_t WasmInstance::module_size() const noexcept {
     return impl_ ? impl_->module_bytes : 0;
+}
+
+namespace {
+
+// Helper: extract the exported function with `name` from an instance's
+// export table. Returns nullopt if missing or wrong kind. Caller is
+// responsible for wasmtime_extern_delete on success.
+std::optional<wasmtime_extern_t>
+find_export_func(wasmtime_context_t* ctx,
+                 const wasmtime_instance_t* instance,
+                 const std::string& name) {
+    wasmtime_extern_t ext;
+    if (!wasmtime_instance_export_get(ctx, instance,
+                                      name.data(), name.size(),
+                                      &ext))
+        return std::nullopt;
+    if (ext.kind != WASMTIME_EXTERN_FUNC) {
+        wasmtime_extern_delete(&ext);
+        return std::nullopt;
+    }
+    return ext;
+}
+
+// Helper: invoke a found function with N typed args, returning the result
+// as Result<typed_result>. Centralizes the trap / error mapping so each
+// public call_* method is a thin wrapper.
+template <typename ResultT, typename Decoder>
+Result<ResultT>
+call_with_vals(wasmtime_context_t* ctx,
+               wasmtime_extern_t&  ext,
+               const wasmtime_val_t* args, std::size_t nargs,
+               wasmtime_val_t*       results, std::size_t nresults,
+               const std::string&  fn_name,
+               Decoder             decode) {
+    using R = Result<ResultT>;
+    wasm_trap_t* trap = nullptr;
+    wasmtime_error_t* err = wasmtime_func_call(
+        ctx, &ext.of.func, args, nargs, results, nresults, &trap);
+
+    if (err) {
+        const auto msg = take_error_message(err);
+        return R{Error{ErrorCode::Unknown,
+                       "wasmtime_func_call(" + fn_name + ") failed: " + msg}};
+    }
+    if (trap) {
+        wasm_byte_vec_t tmsg;
+        wasm_trap_message(trap, &tmsg);
+        std::string msg(tmsg.data, tmsg.size);
+        wasm_byte_vec_delete(&tmsg);
+        wasm_trap_delete(trap);
+        return R{Error{ErrorCode::ParseError,
+                       "wasm trap in " + fn_name + ": " + msg}};
+    }
+    return decode();
+}
+
+} // namespace
+
+bool WasmInstance::has_export(const std::string& fn_name) const {
+    if (!impl_ || !impl_->store) return false;
+    wasmtime_context_t* ctx = wasmtime_store_context(impl_->store);
+    auto ext = find_export_func(ctx, &impl_->instance, fn_name);
+    if (!ext) return false;
+    wasmtime_extern_delete(&*ext);
+    return true;
+}
+
+Result<std::int32_t>
+WasmInstance::call_i32_to_i32(const std::string& fn_name, std::int32_t arg) {
+    using R = Result<std::int32_t>;
+    if (!impl_ || !impl_->store)
+        return R{Error{ErrorCode::InvalidState, "instance not initialized"}};
+    wasmtime_context_t* ctx = wasmtime_store_context(impl_->store);
+    auto ext = find_export_func(ctx, &impl_->instance, fn_name);
+    if (!ext)
+        return R{Error{ErrorCode::NotFound, "wasm export not found: " + fn_name}};
+
+    wasmtime_val_t in;  in.kind  = WASMTIME_I32;  in.of.i32  = arg;
+    wasmtime_val_t out; out.kind = WASMTIME_I32;  out.of.i32 = 0;
+
+    auto rc = call_with_vals<std::int32_t>(
+        ctx, *ext, &in, 1, &out, 1, fn_name,
+        [&out]() -> Result<std::int32_t> { return ok(out.of.i32); });
+    wasmtime_extern_delete(&*ext);
+    return rc;
+}
+
+Result<std::int32_t>
+WasmInstance::call_i32_i64_to_i32(const std::string& fn_name,
+                                  std::int32_t arg0, std::int64_t arg1) {
+    using R = Result<std::int32_t>;
+    if (!impl_ || !impl_->store)
+        return R{Error{ErrorCode::InvalidState, "instance not initialized"}};
+    wasmtime_context_t* ctx = wasmtime_store_context(impl_->store);
+    auto ext = find_export_func(ctx, &impl_->instance, fn_name);
+    if (!ext)
+        return R{Error{ErrorCode::NotFound, "wasm export not found: " + fn_name}};
+
+    wasmtime_val_t in[2];
+    in[0].kind = WASMTIME_I32;  in[0].of.i32 = arg0;
+    in[1].kind = WASMTIME_I64;  in[1].of.i64 = arg1;
+    wasmtime_val_t out; out.kind = WASMTIME_I32; out.of.i32 = 0;
+
+    auto rc = call_with_vals<std::int32_t>(
+        ctx, *ext, in, 2, &out, 1, fn_name,
+        [&out]() -> Result<std::int32_t> { return ok(out.of.i32); });
+    wasmtime_extern_delete(&*ext);
+    return rc;
+}
+
+Result<void> WasmInstance::call_void(const std::string& fn_name) {
+    using R = Result<void>;
+    if (!impl_ || !impl_->store)
+        return R{Error{ErrorCode::InvalidState, "instance not initialized"}};
+    wasmtime_context_t* ctx = wasmtime_store_context(impl_->store);
+    auto ext = find_export_func(ctx, &impl_->instance, fn_name);
+    if (!ext)
+        return R{Error{ErrorCode::NotFound, "wasm export not found: " + fn_name}};
+
+    auto rc = call_with_vals<void>(
+        ctx, *ext, nullptr, 0, nullptr, 0, fn_name,
+        []() -> Result<void> { return ok(); });
+    wasmtime_extern_delete(&*ext);
+    return rc;
 }
 
 Result<std::int32_t>
