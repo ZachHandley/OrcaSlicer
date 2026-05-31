@@ -162,6 +162,15 @@ std::size_t Session::registered_slot_count() const {
     return impl_->registry.slot_count();
 }
 
+std::vector<Session::ManifestInfo> Session::plugin_manifests() const {
+    std::vector<Session::ManifestInfo> out;
+    for (const auto& m : impl_->registry.manifests()) {
+        out.push_back(ManifestInfo{
+            m.id, m.name, m.version, m.author, m.description, m.permissions});
+    }
+    return out;
+}
+
 PluginRegistry& Session::plugin_registry() {
     return impl_->registry;
 }

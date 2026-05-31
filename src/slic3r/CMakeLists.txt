@@ -480,6 +480,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/UserNotification.hpp
     GUI/WebDownPluginDlg.cpp
     GUI/WebDownPluginDlg.hpp
+    GUI/PluginManagerDialog.cpp
+    GUI/PluginManagerDialog.hpp
     GUI/WebGuideDialog.cpp
     GUI/WebGuideDialog.hpp
     GUI/WebUserLoginDialog.cpp

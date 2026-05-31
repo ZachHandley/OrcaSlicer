@@ -26,6 +26,7 @@
 
 #include "orca/Config.hpp"
 
+#include "PluginManagerDialog.hpp"
 #include "Tab.hpp"
 #include "ProgressStatusBar.hpp"
 #include "3DScene.hpp"
@@ -2555,6 +2556,14 @@ static wxMenu* generate_help_menu()
 
     helpMenu->AppendSeparator();
     // Open Config Folder
+    // Phase 4.2 — Plugin Manager dialog (see PluginManagerDialog.{hpp,cpp}).
+    append_menu_item(helpMenu, wxID_ANY, _L("Plugins..."), _L("Manage installed plugins"),
+            [](wxCommandEvent&) {
+                Slic3r::GUI::PluginManagerDialog dlg(
+                    static_cast<wxWindow*>(wxGetApp().mainframe));
+                dlg.ShowModal();
+            });
+
     append_menu_item(helpMenu, wxID_ANY, _L("Show Configuration Folder"), _L("Show Configuration Folder"),
         [](wxCommandEvent&) { Slic3r::GUI::desktop_open_datadir_folder(); });
 

@@ -99,6 +99,19 @@ public:
     std::vector<std::string> loaded_plugin_ids() const;
     bool                     is_plugin_loaded(const std::string& plugin_id) const;
 
+    /// Public-shape mirror of the engine-internal StoredManifest. Used by
+    /// UI consumers (PluginManagerDialog) that don't want to drag
+    /// engine/src/ into their include path.
+    struct ManifestInfo {
+        std::string   id;
+        std::string   name;
+        std::string   version;
+        std::string   author;
+        std::string   description;
+        std::uint64_t permissions = 0;
+    };
+    std::vector<ManifestInfo> plugin_manifests() const;
+
     // Read-only count of registered slots across all kinds. Useful for tests.
     std::size_t registered_slot_count() const;
 
