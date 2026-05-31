@@ -20,6 +20,9 @@
 
 #include "orca/Result.hpp"
 
+#include <wasmtime/func.h>     // wasmtime_func_t (POD by-value)
+#include <wasmtime/store.h>    // wasmtime_context_t (opaque)
+
 #include <cstdint>
 #include <string>
 
@@ -32,6 +35,23 @@ class Session;
 } // namespace orca
 
 namespace orca::wasm {
+
+/// Interface used by slot-registration host imports to register slots
+/// back through the engine's PluginRegistry. WasmPlugin implements this;
+/// WasmHost wires it into ImportContext after instantiation so the
+/// orca_plugin_register call from the guest can hit it.
+struct PluginSlotSink {
+    virtual ~PluginSlotSink() = default;
+
+    /// The guest just called `orca_register_pipeline_observer("name")`.
+    /// `guest_func` is the exported function the guest wants invoked when
+    /// the observer fires; the implementation must keep it alive (or look
+    /// it back up via the store + instance) for as long as the slot lives.
+    /// Returns the slot id on success, 0 on failure.
+    virtual std::uint64_t register_observer_from_wasm(
+        wasmtime_context_t* ctx,
+        wasmtime_func_t     guest_func) = 0;
+};
 
 /// Per-instance host context. Stored on the wasmtime_store_t via
 /// wasmtime_store_new(engine, data, finalizer) so every import callback
@@ -48,6 +68,12 @@ struct ImportContext {
     /// tests; capability-gated imports that need it return
     /// ORCA_ERR_INVALID_ARGUMENT in that case.
     Session* session = nullptr;
+
+    /// Slot-registration imports route through this sink. Set by
+    /// WasmPlugin AFTER WasmHost::load_wasm returns; null while the
+    /// instance is still being assembled. Imports that need it must
+    /// no-op (return 0 / error) when sink is null.
+    PluginSlotSink* slot_sink = nullptr;
 };
 
 /// Define every orca_* import on `linker` against `engine`. After this

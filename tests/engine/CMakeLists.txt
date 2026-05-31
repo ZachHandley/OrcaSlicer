@@ -4,6 +4,8 @@ get_filename_component(_TEST_NAME ${CMAKE_CURRENT_LIST_DIR} NAME)
 # tests target can depend on it.
 add_subdirectory(fixtures/loader_plugin)
 add_subdirectory(fixtures/profile_pack)
+add_subdirectory(fixtures/native_noop)
+add_subdirectory(fixtures/webview_noop)
 
 add_executable(${_TEST_NAME}_tests
     ${_TEST_NAME}_tests.cpp
@@ -22,6 +24,7 @@ add_executable(${_TEST_NAME}_tests
     test_wasm_host.cpp
     test_wasm_plugin.cpp
     test_wasm_dispatch.cpp
+    test_runtime_fixtures.cpp
     )
 
 target_link_libraries(${_TEST_NAME}_tests test_common libslic3r Catch2::Catch2WithMain)
@@ -59,7 +62,7 @@ target_compile_definitions(${_TEST_NAME}_tests PRIVATE
     )
 
 # Ensure the fixture binary + its manifest copy step run before the tests build.
-add_dependencies(${_TEST_NAME}_tests test_fixture_loader_plugin)
+add_dependencies(${_TEST_NAME}_tests test_fixture_loader_plugin test_fixture_native_noop test_fixture_webview_noop)
 
 set_property(TARGET ${_TEST_NAME}_tests PROPERTY FOLDER "tests")
 

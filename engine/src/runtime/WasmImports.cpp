@@ -186,6 +186,38 @@ wasm_trap_t* host_placeholder_set_float(void* /*env*/, wasmtime_caller_t* caller
     return nullptr;
 }
 
+/// orca_register_pipeline_observer(name_ptr, name_len) -> i64 (slot_id, 0 on fail)
+/// Looks up the named export on the calling instance and registers it as
+/// the on_step target for an ORCA_SLOT_PIPELINE_OBSERVER. Routes through
+/// ImportContext::slot_sink which the WasmPlugin populated before
+/// invoking orca_plugin_register on the guest.
+wasm_trap_t* host_register_pipeline_observer(void* /*env*/, wasmtime_caller_t* caller,
+                                             const wasmtime_val_t* args, std::size_t nargs,
+                                             wasmtime_val_t* results, std::size_t nresults) {
+    std::int64_t slot_id = 0;
+    if (nargs >= 2) {
+        const auto name = read_guest_string(caller, args[0].of.i32, args[1].of.i32);
+        auto* ictx = import_ctx_from(caller);
+        if (ictx && ictx->slot_sink && !name.empty()) {
+            wasmtime_extern_t ext;
+            if (wasmtime_caller_export_get(caller, name.data(), name.size(), &ext)) {
+                if (ext.kind == WASMTIME_EXTERN_FUNC) {
+                    slot_id = static_cast<std::int64_t>(
+                        ictx->slot_sink->register_observer_from_wasm(
+                            wasmtime_caller_context(caller),
+                            ext.of.func));
+                }
+                wasmtime_extern_delete(&ext);
+            }
+        }
+    }
+    if (nresults >= 1) {
+        results[0].kind = WASMTIME_I64;
+        results[0].of.i64 = slot_id;
+    }
+    return nullptr;
+}
+
 /// orca_load_profile_pack(dir_ptr, dir_len) -> i32 (orca_error_code_t)
 /// Permission-gated on ORCA_PERM_PROFILES_INSTALL.
 wasm_trap_t* host_load_profile_pack(void* /*env*/, wasmtime_caller_t* caller,
@@ -265,14 +297,16 @@ Result<void> install_imports(wasmtime_linker_t* linker,
     const auto t_ph_set_int        = make_functype({WASM_I32, WASM_I32, WASM_I64}, {WASM_I32});
     const auto t_ph_set_float      = make_functype({WASM_I32, WASM_I32, WASM_F64}, {WASM_I32});
     const auto t_load_profile_pack = make_functype({WASM_I32, WASM_I32},           {WASM_I32});
+    const auto t_register_observer = make_functype({WASM_I32, WASM_I32},           {WASM_I64});
 
-    if (!define_func(linker, "orca_log",                   t_log,               host_log)             ||
-        !define_func(linker, "orca_abort",                 t_abort,             host_abort)           ||
-        !define_func(linker, "orca_check_permission",      t_check_permission,  host_check_permission)||
-        !define_func(linker, "orca_placeholder_set_string",t_ph_set_string,     host_placeholder_set_string) ||
-        !define_func(linker, "orca_placeholder_set_int",   t_ph_set_int,        host_placeholder_set_int)    ||
-        !define_func(linker, "orca_placeholder_set_float", t_ph_set_float,      host_placeholder_set_float)  ||
-        !define_func(linker, "orca_load_profile_pack",     t_load_profile_pack, host_load_profile_pack))
+    if (!define_func(linker, "orca_log",                          t_log,               host_log)             ||
+        !define_func(linker, "orca_abort",                        t_abort,             host_abort)           ||
+        !define_func(linker, "orca_check_permission",             t_check_permission,  host_check_permission)||
+        !define_func(linker, "orca_placeholder_set_string",       t_ph_set_string,     host_placeholder_set_string) ||
+        !define_func(linker, "orca_placeholder_set_int",          t_ph_set_int,        host_placeholder_set_int)    ||
+        !define_func(linker, "orca_placeholder_set_float",        t_ph_set_float,      host_placeholder_set_float)  ||
+        !define_func(linker, "orca_load_profile_pack",            t_load_profile_pack, host_load_profile_pack)      ||
+        !define_func(linker, "orca_register_pipeline_observer",   t_register_observer, host_register_pipeline_observer))
         return R{Error{ErrorCode::Unknown,
                        "wasmtime_linker_define_func failed for one of the orca_* imports"}};
 

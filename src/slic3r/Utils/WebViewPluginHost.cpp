@@ -6,6 +6,8 @@
 
 #include "orca/Session.hpp"
 #include "orca/Presets.hpp"
+#include "orca/Events.hpp"
+#include "orca/EventTypes.hpp"
 #include "orca/c_api.h"
 #include "orca/plugin_api.h"
 #include "orca/PlaceholderProvider.hpp"
@@ -13,8 +15,10 @@
 
 #include "nlohmann/json.hpp"
 
+#include <wx/app.h>
 #include <wx/sizer.h>
 #include <wx/webview.h>
+#include <wx/weakref.h>
 
 #include <cstdio>
 #include <string>
@@ -51,6 +55,17 @@ constexpr const char* kOrcaWindowShim = R"JS(
         });
     }
 
+    // Engine-event subscriptions are dispatched back through
+    // window.__orca_event_dispatch(js_sub_id, payload). Keyed by the JS
+    // subscription id we hand back from events.on.
+    const __event_handlers = new Map();
+    let __next_event_id = 1;
+
+    window.__orca_event_dispatch = function (js_sub_id, payload) {
+        const cb = __event_handlers.get(js_sub_id);
+        if (cb) try { cb(payload); } catch (_e) {}
+    };
+
     window.orca = {
         log: (level, message) => call('log', { level, message }),
         checkPermission: (bit) => call('check_permission', { bit }),
@@ -61,6 +76,22 @@ constexpr const char* kOrcaWindowShim = R"JS(
         placeholderSetFloat: (name, value) =>
             call('placeholder_set_float', { name, value }),
         loadProfilePack: (dir) => call('load_profile_pack', { dir }),
+
+        events: {
+            on(kind, cb) {
+                const js_sub_id = __next_event_id++;
+                __event_handlers.set(js_sub_id, cb);
+                // Engine-side subscription happens via the host; the
+                // call resolves with the id so the caller can
+                // events.off(id) later.
+                call('events_subscribe', { kind, js_sub_id });
+                return js_sub_id;
+            },
+            off(js_sub_id) {
+                __event_handlers.delete(js_sub_id);
+                return call('events_unsubscribe', { js_sub_id });
+            },
+        },
     };
 })();
 )JS";
@@ -109,7 +140,18 @@ WebViewPluginHost::WebViewPluginHost(wxWindow*       parent,
     SetSizer(sizer);
 }
 
-WebViewPluginHost::~WebViewPluginHost() = default;
+WebViewPluginHost::~WebViewPluginHost() {
+    // Drain engine-side subscriptions BEFORE the wxWebView (and `this`)
+    // wind down. After this loop no engine callback can fire into our
+    // RunScriptAsync — any in-flight publish has either already crossed
+    // the unsubscribe lock or is no longer registered.
+    if (session_) {
+        auto& events = session_->events();
+        for (auto& [js_sub_id, engine_sub_id] : event_subscriptions_)
+            events.unsubscribe(engine_sub_id);
+    }
+    event_subscriptions_.clear();
+}
 
 void WebViewPluginHost::Reply(int request_id,
                               const wxString& json_or_null_payload)
@@ -201,6 +243,42 @@ void WebViewPluginHost::OnScriptMessage(wxWebViewEvent& evt)
         return;
     }
 
+    if (action == "events_subscribe") {
+        if (!session_) {
+            ReplyError(request_id, error_tag(ORCA_ERR_INVALID_ARGUMENT));
+            return;
+        }
+        const std::string kind   = args.value("kind", std::string{});
+        const std::uint32_t js   = args.value("js_sub_id", 0u);
+        if (kind.empty() || js == 0) {
+            ReplyError(request_id, error_tag(ORCA_ERR_INVALID_ARGUMENT));
+            return;
+        }
+        const auto engine_id = SubscribeEvent(kind, js);
+        if (engine_id == 0) {
+            ReplyError(request_id, "unsupported event kind: " + kind);
+            return;
+        }
+        event_subscriptions_.emplace(js, engine_id);
+        Reply(request_id, wxString::Format("%u", js));
+        return;
+    }
+
+    if (action == "events_unsubscribe") {
+        const std::uint32_t js = args.value("js_sub_id", 0u);
+        if (js == 0 || !session_) {
+            Reply(request_id, "null");
+            return;
+        }
+        auto it = event_subscriptions_.find(js);
+        if (it != event_subscriptions_.end()) {
+            session_->events().unsubscribe(it->second);
+            event_subscriptions_.erase(it);
+        }
+        Reply(request_id, "null");
+        return;
+    }
+
     if (action == "load_profile_pack") {
         if (!has_perm(ORCA_PERM_PROFILES_INSTALL)) {
             ReplyError(request_id, error_tag(ORCA_ERR_PERMISSION_DENIED));
@@ -224,6 +302,63 @@ void WebViewPluginHost::OnScriptMessage(wxWebViewEvent& evt)
 
     ReplyError(request_id, wxString::Format(
         "unknown action: %s", wxString::FromUTF8(action)));
+}
+
+namespace {
+
+// Marshal each known engine event payload to a JSON string the JS side
+// can consume directly via __orca_event_dispatch.
+nlohmann::json to_json(const ::orca::SlicingProgress& e) {
+    return { {"handle", e.handle}, {"progress", e.progress}, {"message", e.message} };
+}
+nlohmann::json to_json(const ::orca::SlicingFinished& e) {
+    return { {"handle", e.handle}, {"success", e.success}, {"error", e.error} };
+}
+nlohmann::json to_json(const ::orca::ExportFinished& e) {
+    return { {"handle", e.handle}, {"success", e.success},
+             {"line_count", e.line_count}, {"error", e.error} };
+}
+
+// Dispatch a marshalled payload to the JS side on the UI thread.
+// `weak_self` keeps us from running into a destroyed host; `js_sub_id`
+// matches the id JS registered when it called events.on.
+template <typename EventT>
+auto make_dispatcher(wxWeakRef<Slic3r::GUI::WebViewPluginHost> weak_self,
+                     std::uint32_t js_sub_id)
+{
+    return [weak_self, js_sub_id](const EventT& e) mutable {
+        const auto j = to_json(e).dump();
+        wxString js;
+        js << "window.__orca_event_dispatch(" << js_sub_id << ", "
+           << wxString::FromUTF8(j) << ");";
+        wxTheApp->CallAfter([weak_self, js]() {
+            auto* host = weak_self.get();
+            if (!host || !host->webview()) return;
+            host->webview()->RunScriptAsync(js);
+        });
+    };
+}
+
+} // namespace
+
+std::uint64_t WebViewPluginHost::SubscribeEvent(const std::string& kind_name,
+                                                std::uint32_t      js_sub_id)
+{
+    if (!session_) return 0;
+    auto& events = session_->events();
+
+    wxWeakRef<WebViewPluginHost> weak_self(this);
+
+    if (kind_name == "SlicingProgress")
+        return events.subscribe<::orca::SlicingProgress>(
+            make_dispatcher<::orca::SlicingProgress>(weak_self, js_sub_id));
+    if (kind_name == "SlicingFinished")
+        return events.subscribe<::orca::SlicingFinished>(
+            make_dispatcher<::orca::SlicingFinished>(weak_self, js_sub_id));
+    if (kind_name == "ExportFinished")
+        return events.subscribe<::orca::ExportFinished>(
+            make_dispatcher<::orca::ExportFinished>(weak_self, js_sub_id));
+    return 0;
 }
 
 }} // namespace Slic3r::GUI

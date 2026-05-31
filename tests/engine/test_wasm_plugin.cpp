@@ -96,7 +96,7 @@ TEST_CASE("Phase 3.2.4 — WasmPlugin runs register/unregister lifecycle",
         const auto path = write_wat("wasm_lifecycle_ok.wasm", kWatOk);
         auto manifest   = make_manifest(path);
 
-        auto res = orca::wasm::WasmPlugin::load(host, manifest, /*session*/ nullptr);
+        auto res = orca::wasm::WasmPlugin::load(host, manifest, /*session*/ nullptr, /*registry*/ nullptr);
         REQUIRE(res.ok());
 
         const auto& plugin = res.value();
@@ -112,7 +112,7 @@ TEST_CASE("Phase 3.2.4 — WasmPlugin runs register/unregister lifecycle",
         const auto path = write_wat("wasm_lifecycle_fail.wasm", kWatRegisterFails);
         auto manifest   = make_manifest(path);
 
-        auto res = orca::wasm::WasmPlugin::load(host, manifest, /*session*/ nullptr);
+        auto res = orca::wasm::WasmPlugin::load(host, manifest, /*session*/ nullptr, /*registry*/ nullptr);
         REQUIRE_FALSE(res.ok());
         // kWatRegisterFails returns ORCA_ERR_UNSUPPORTED (8) -> Unsupported.
         CHECK(res.error().code == orca::ErrorCode::Unsupported);
@@ -122,7 +122,7 @@ TEST_CASE("Phase 3.2.4 — WasmPlugin runs register/unregister lifecycle",
         const auto path = write_wat("wasm_lifecycle_dbg.wasm", kWatDebugMismatch);
         auto manifest   = make_manifest(path);
 
-        auto res = orca::wasm::WasmPlugin::load(host, manifest, /*session*/ nullptr);
+        auto res = orca::wasm::WasmPlugin::load(host, manifest, /*session*/ nullptr, /*registry*/ nullptr);
         REQUIRE_FALSE(res.ok());
         CHECK(res.error().code == orca::ErrorCode::Unsupported);
     }
@@ -131,7 +131,7 @@ TEST_CASE("Phase 3.2.4 — WasmPlugin runs register/unregister lifecycle",
         orca::wasm::WasmPlugin::Manifest manifest;
         manifest.id = "missing.path";
 
-        auto res = orca::wasm::WasmPlugin::load(host, manifest, /*session*/ nullptr);
+        auto res = orca::wasm::WasmPlugin::load(host, manifest, /*session*/ nullptr, /*registry*/ nullptr);
         REQUIRE_FALSE(res.ok());
         CHECK(res.error().code == orca::ErrorCode::InvalidArgument);
     }

@@ -548,6 +548,42 @@ orca_error_code_t PluginManager::load_plugin(const std::filesystem::path& plugin
         return ORCA_OK;
     }
 
+    // --- 2.7: webview branch --------------------------------------------
+    // Plugins declaring "kind": "webview" ship HTML/JS instead of a native
+    // binary. PluginManager treats them as metadata-only: the actual UI
+    // surface is mounted by Slic3r::GUI::WebViewPluginHost when GUI code
+    // iterates loaded plugins. PluginManager records id / version /
+    // permissions / source_dir so the manager UI can render the listing
+    // and unload_plugin can scrub the record on demand.
+    if (j.value("kind", std::string{}) == "webview") {
+        // entry.webview must point at a file that exists alongside the
+        // manifest; everything else is GUI's problem.
+        std::string entry;
+        if (j.contains("entry") && j["entry"].is_object() &&
+            j["entry"].contains("webview") && j["entry"]["webview"].is_string())
+            entry = j["entry"]["webview"].get<std::string>();
+
+        if (entry.empty()) {
+            log_line(4, ("webview plugin missing entry.webview: " + plugin->id).c_str());
+            return ORCA_ERR_INVALID_ARGUMENT;
+        }
+        const auto html = plugin_dir / entry;
+        if (!std::filesystem::is_regular_file(html)) {
+            log_line(4, ("webview entry not found: " + html.string()).c_str());
+            return ORCA_ERR_NOT_FOUND;
+        }
+
+        std::string id_copy      = plugin->id;
+        std::string version_copy = plugin->version;
+        {
+            std::lock_guard<std::mutex> guard(impl_->mtx);
+            impl_->load_order.push_back(id_copy);
+            impl_->plugins.emplace(id_copy, std::move(plugin));
+        }
+        log_line(2, ("loaded webview plugin " + id_copy + " v" + version_copy).c_str());
+        return ORCA_OK;
+    }
+
     // --- 2.6: wasm branch ------------------------------------------------
     // Plugins shipping WebAssembly declare `"kind": "wasm"` in their
     // manifest. The entry file is resolved the same way the native branch
@@ -580,7 +616,7 @@ orca_error_code_t PluginManager::load_plugin(const std::filesystem::path& plugin
         wm.permissions = plugin->permissions;
         wm.wasm_path   = wasm_path;
 
-        auto wp_res = wasm::WasmPlugin::load(*impl_->wasm_host, wm, impl_->session);
+        auto wp_res = wasm::WasmPlugin::load(*impl_->wasm_host, wm, impl_->session, impl_->registry);
         if (!wp_res.ok()) {
             log_line(4, ("wasm plugin load failed for " + plugin->id +
                          ": " + wp_res.error().message).c_str());

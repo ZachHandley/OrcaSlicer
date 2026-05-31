@@ -14,21 +14,24 @@
 #pragma once
 
 #include "orca/Result.hpp"
+#include "WasmImports.hpp"   // PluginSlotSink + ImportContext
 
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
 
-namespace orca { class Session; }
+namespace orca {
+class Session;
+class PluginRegistry;
+} // namespace orca
 
 namespace orca::wasm {
 
 class WasmHost;
 class WasmInstance;
-struct ImportContext;
 
-class WasmPlugin {
+class WasmPlugin : public PluginSlotSink {
 public:
     /// Manifest fields WasmPlugin needs to bring a guest up. Mirrors the
     /// shape PluginManager has already parsed from manifest.json.
@@ -42,10 +45,19 @@ public:
     /// Compile, instantiate, and run the lifecycle exports against `host`.
     /// On any non-OK orca_plugin_register return code the instance is
     /// dropped and the original code is mapped into the returned Result.
+    /// `registry` (when non-null) is what slot-registration imports call
+    /// into to add per-plugin slots; pass null for tests that don't use
+    /// slot registration.
     static Result<std::unique_ptr<WasmPlugin>>
-    load(WasmHost& host, const Manifest& manifest, Session* session);
+    load(WasmHost& host, const Manifest& manifest, Session* session,
+         PluginRegistry* registry);
 
-    ~WasmPlugin();
+    ~WasmPlugin() override;
+
+    // PluginSlotSink — called from orca_register_pipeline_observer.
+    std::uint64_t register_observer_from_wasm(
+        wasmtime_context_t* ctx,
+        wasmtime_func_t     guest_func) override;
 
     WasmPlugin(const WasmPlugin&)            = delete;
     WasmPlugin& operator=(const WasmPlugin&) = delete;

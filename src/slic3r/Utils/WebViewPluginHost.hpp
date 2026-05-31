@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 
 class wxWebView;
 class wxWebViewEvent;
@@ -50,10 +51,22 @@ private:
     void Reply(int request_id, const wxString& json_or_null_payload);
     void ReplyError(int request_id, const wxString& message);
 
+    // events.on bridge — subscribe the engine event bus to a JS callback.
+    // Returns the JS-facing subscription id (0 on failure / unsupported
+    // kind). Captures (this, sub_id) into the engine callback; CallAfter
+    // marshals the dispatch onto the UI thread for RunScriptAsync.
+    std::uint64_t SubscribeEvent(const std::string& kind_name,
+                                 std::uint32_t      js_sub_id);
+
     std::string    plugin_id_;
     std::uint64_t  permissions_ = 0;
     orca::Session* session_     = nullptr;
     wxWebView*     webview_     = nullptr;
+
+    // Active engine subscriptions, keyed by JS subscription id, mapped to
+    // the engine subscription id. The destructor unsubscribes all of
+    // them through the engine so no callbacks fire after destruction.
+    std::unordered_map<std::uint32_t, std::uint64_t> event_subscriptions_;
 };
 
 }} // namespace Slic3r::GUI
