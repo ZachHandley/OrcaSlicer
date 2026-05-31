@@ -9,7 +9,7 @@
 [workspace]
 resolver = "3"
 members  = ["orca-plugin-macros",
-    "orca-plugin-sdk",
+    "orca-plugin-sdk", "orca-plugin-verify",
 ]
 
 [workspace.package]

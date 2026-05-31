@@ -2,7 +2,9 @@
   "id":          "{{plugin_id}}",
   "name":        "{{project-name}}",
   "version":     "0.1.0",
+  "kind":        "native",
   "author":      "{{authors}}",
   "description": "{{plugin_description}}",
-  "permissions": []
+  "permissions": [],
+  "provides":    ["pipeline_observer"]
 }

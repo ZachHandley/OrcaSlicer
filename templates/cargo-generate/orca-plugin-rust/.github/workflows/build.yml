@@ -47,10 +47,26 @@ jobs:
         run: |
           mkdir -p staging/{{plugin_id}}
           cp plugin.json staging/{{plugin_id}}/manifest.json
+          if [ -f settings.schema.json ]; then
+            cp settings.schema.json staging/{{plugin_id}}/
+          fi
           cp target/${{ matrix.target }}/release/lib{{project-name}}.${{ matrix.ext }} \
              staging/{{plugin_id}}/{{plugin_id}}.${{ matrix.ext }} || \
           cp target/${{ matrix.target }}/release/{{project-name}}.${{ matrix.ext }} \
              staging/{{plugin_id}}/{{plugin_id}}.${{ matrix.ext }}
+
+      # Phase 6.6 — gate releases on `orca-plugin-verify`. Catches manifest
+      # drift, missing provides[], permission under-declaration, and broken
+      # ABI handshakes BEFORE the artifact reaches the marketplace.
+      - name: Install orca-plugin-verify
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        shell: bash
+        run: cargo install --locked orca-plugin-verify || true
+
+      - name: Verify staged plugin
+        if: runner.os == 'Linux' || runner.os == 'macOS'
+        shell: bash
+        run: orca-plugin-verify --smoke staging/{{plugin_id}}
 
       - uses: actions/upload-artifact@v7.0.1
         with:

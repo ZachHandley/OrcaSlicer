@@ -2,7 +2,9 @@
   "id":          "com.orcaslicer.klipper-pro",
   "name":        "Klipper-Pro",
   "version":     "0.1.0",
+  "kind":        "hybrid",
   "author":      "OrcaSlicer",
   "description": "Send slices to Klipper-flavored printers via Moonraker.",
-  "permissions": ["network", "device_control", "ui_attach"]
+  "permissions": ["network", "device_control", "ui_attach"],
+  "provides":    ["printer_agent"]
 }

@@ -45,15 +45,18 @@ add_custom_command(
 add_custom_command(
     OUTPUT  "${_STAGED_LIB}"
             "${_STAGED_DIR}/manifest.json"
+            "${_STAGED_DIR}/settings.schema.json"
             "${_STAGED_DIR}/moonraker_mock.py"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_STAGED_DIR}"
-    COMMAND ${CMAKE_COMMAND} -E copy "${_CARGO_OUT}"                 "${_STAGED_LIB}"
-    COMMAND ${CMAKE_COMMAND} -E copy "${_KLIPPER_DIR}/plugin.json"   "${_STAGED_DIR}/manifest.json"
+    COMMAND ${CMAKE_COMMAND} -E copy "${_CARGO_OUT}"                          "${_STAGED_LIB}"
+    COMMAND ${CMAKE_COMMAND} -E copy "${_KLIPPER_DIR}/plugin.json"            "${_STAGED_DIR}/manifest.json"
+    COMMAND ${CMAKE_COMMAND} -E copy "${_KLIPPER_DIR}/settings.schema.json"   "${_STAGED_DIR}/settings.schema.json"
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/moonraker_mock.py"
                                      "${_STAGED_DIR}/moonraker_mock.py"
     DEPENDS
         "${_CARGO_OUT}"
         "${_KLIPPER_DIR}/plugin.json"
+        "${_KLIPPER_DIR}/settings.schema.json"
         "${CMAKE_CURRENT_SOURCE_DIR}/moonraker_mock.py"
     COMMENT "Staging klipper-pro fixture into ${_STAGED_DIR}"
     VERBATIM)
@@ -62,4 +65,5 @@ add_custom_target(test_fixture_klipper_pro ALL
     DEPENDS
         "${_STAGED_LIB}"
         "${_STAGED_DIR}/manifest.json"
+        "${_STAGED_DIR}/settings.schema.json"
         "${_STAGED_DIR}/moonraker_mock.py")
