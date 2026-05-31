@@ -308,6 +308,144 @@ typedef struct {
     const char* profile_dir;
 } orca_slot_profile_pack_t;
 
+/* ============ UI builder ABI (Phase 4.0) ============ */
+/*
+ * Every UI-side slot kind (settings_page, sidebar_panel, device_tab) hands
+ * the plugin an orca_ui_builder_t at mount time. The plugin makes
+ * imperative builder calls to populate the container — labels, text
+ * fields, dropdowns, buttons — plus an HTML escape hatch for full
+ * webview embed. Field values are addressed by a plugin-chosen string
+ * `key`; the host owns persistence and surfaces value changes through
+ * on_value_changed.
+ *
+ * The builder pointer is valid only for the duration of the on_build
+ * callback. Field accessors (get_value/set_value) work post-build via
+ * the page handle the plugin captured.
+ *
+ * Requires permission bit ORCA_PERM_UI_ATTACH for any slot kind that
+ * uses it.
+ */
+
+typedef struct orca_ui_page  orca_ui_page_t;   /* opaque page handle */
+typedef struct orca_ui_group orca_ui_group_t;  /* opaque group/section handle */
+
+typedef void (*orca_ui_value_changed_fn_t)(
+    orca_ui_page_t* page,
+    const char*     key,
+    const char*     json_value,  /* "42" / "\"hello\"" / "true" / "1.5" */
+    void*           user_data);
+
+typedef void (*orca_ui_button_click_fn_t)(orca_ui_page_t* page, void* user_data);
+
+typedef struct {
+    uint32_t struct_size;
+
+    /* Section grouping. Subsequent add_* calls land inside the most
+     * recently-opened group; groups may nest. */
+    orca_ui_group_t* (*push_group)(orca_ui_page_t* page, const char* label);
+    void             (*pop_group) (orca_ui_page_t* page);
+
+    /* Read-only / structural. */
+    void (*add_label)    (orca_ui_page_t* page, const char* text);
+    void (*add_separator)(orca_ui_page_t* page);
+
+    /* Editable fields. `key` is the plugin's addressable name. */
+    void (*add_text_field) (orca_ui_page_t* page, const char* label,
+                            const char* key, const char* default_value);
+    void (*add_int_field)  (orca_ui_page_t* page, const char* label,
+                            const char* key, int64_t default_value);
+    void (*add_float_field)(orca_ui_page_t* page, const char* label,
+                            const char* key, double  default_value);
+    void (*add_bool_field) (orca_ui_page_t* page, const char* label,
+                            const char* key, int default_value);
+
+    /* Drop-down. options is a NULL-terminated array of UTF-8 strings. */
+    void (*add_combo)(orca_ui_page_t* page, const char* label,
+                      const char* key,
+                      const char* const* options,
+                      const char* default_value);
+
+    /* Button. on_click fires on the UI thread. */
+    void (*add_button)(orca_ui_page_t* page, const char* label,
+                       orca_ui_button_click_fn_t on_click,
+                       void* user_data);
+
+    /* Escape hatch — host renders a wxWebView whose HTML body is `html`.
+     * Used by plugins needing full UI control. The webview gets the
+     * standard window.orca.* bridge. */
+    void (*add_html)(orca_ui_page_t* page, const char* html);
+
+    /* Reactive accessor — register once per page; fires on the UI thread
+     * whenever ANY field value changes. */
+    void (*on_value_changed)(orca_ui_page_t* page,
+                             orca_ui_value_changed_fn_t cb,
+                             void* user_data);
+
+    /* Read / write field values from any thread. Returned string is
+     * heap-allocated UTF-8 JSON; caller frees via host->string_free. */
+    const char* (*get_value)(orca_ui_page_t* page, const char* key);
+    void        (*set_value)(orca_ui_page_t* page, const char* key,
+                             const char* json_value);
+} orca_ui_builder_t;
+
+/* ============ UI slot vtables (Phase 4.0) ============ */
+
+/* Settings-page slot (Phase 4.1.1) — adds a custom options page to one
+ * of the engine's settings tabs. */
+typedef enum {
+    ORCA_SETTINGS_TAB_PRINT    = 0,
+    ORCA_SETTINGS_TAB_FILAMENT = 1,
+    ORCA_SETTINGS_TAB_PRINTER  = 2
+} orca_settings_tab_t;
+
+typedef struct {
+    uint32_t            struct_size;
+    orca_settings_tab_t tab;
+    const char*         page_title;
+    void              (*on_build)(orca_ui_page_t* page,
+                                  const orca_ui_builder_t* builder,
+                                  void* user_data);
+} orca_slot_settings_page_t;
+
+/* Sidebar-panel slot (Phase 4.1.2) — attaches a panel below the
+ * existing sidebar. */
+typedef struct {
+    uint32_t    struct_size;
+    const char* panel_title;
+    void      (*on_build)(orca_ui_page_t* page,
+                          const orca_ui_builder_t* builder,
+                          void* user_data);
+} orca_slot_sidebar_panel_t;
+
+/* Menu-command slot (Phase 4.1.3) — adds an entry to the named menu. */
+typedef enum {
+    ORCA_MENU_FILE  = 0,
+    ORCA_MENU_EDIT  = 1,
+    ORCA_MENU_VIEW  = 2,
+    ORCA_MENU_TOOLS = 3,
+    ORCA_MENU_HELP  = 4
+} orca_menu_t;
+
+typedef struct {
+    uint32_t    struct_size;
+    orca_menu_t menu;
+    const char* label;
+    const char* shortcut;     /* may be NULL; e.g. "Ctrl+Shift+P" */
+    void      (*on_click)(void* user_data);
+} orca_slot_menu_command_t;
+
+/* Device-tab slot (Phase 4.1.4) — adds a custom tab to the device pane. */
+typedef struct {
+    uint32_t    struct_size;
+    const char* tab_title;
+    /* Filter — printers whose vendor matches this string get the tab.
+     * NULL or empty means show on all printers. */
+    const char* match_vendor;
+    void      (*on_build)(orca_ui_page_t* page,
+                          const orca_ui_builder_t* builder,
+                          void* user_data);
+} orca_slot_device_tab_t;
+
 /* ============ Manifest + permissions ============ */
 
 /* Permission bits declared by the plugin in orca_plugin_manifest_t.permissions.
