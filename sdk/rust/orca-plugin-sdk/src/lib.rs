@@ -27,10 +27,17 @@ pub use crate::ctx::{Ctx, LogLevel};
 pub use crate::error::{Error, Result};
 pub use crate::plugin::Plugin;
 
+// Re-export the Phase 5.2 attribute macro under the canonical
+// `orca_plugin_sdk::orca_plugin` name. The cargo-generate scaffold
+// from Phase 5.4 sets up a `mod orca { pub use orca_plugin_sdk::*; }`
+// shortcut so authors can write `#[orca::plugin(...)]`.
+pub use orca_plugin_macros::orca_plugin;
+
 pub mod prelude {
     pub use crate::abi;
     pub use crate::ctx::{current, with_host, Ctx, LogLevel};
     pub use crate::error::{Error, Result};
     pub use crate::events::{self, Event, Subscription};
     pub use crate::plugin::Plugin;
+    pub use orca_plugin_macros::orca_plugin;
 }

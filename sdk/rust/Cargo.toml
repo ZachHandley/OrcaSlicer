@@ -8,7 +8,7 @@
 
 [workspace]
 resolver = "3"
-members  = [
+members  = ["orca-plugin-macros",
     "orca-plugin-sdk",
 ]
 

@@ -14,4 +14,5 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 libc = "0.2.186"
+orca-plugin-macros = { version = "0.1.0", path = "../orca-plugin-macros" }
 serde = { version = "1.0.228", features = ["derive"] }
