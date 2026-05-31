@@ -16,6 +16,7 @@ class wxListCtrl;
 class wxListEvent;
 class wxTextCtrl;
 class wxButton;
+class wxCommandEvent;
 
 namespace Slic3r { namespace GUI {
 
@@ -25,12 +26,14 @@ public:
 
 private:
     void OnReloadAll(wxCommandEvent&);
+    void OnInstall(wxCommandEvent&);
     void OnSelectionChanged(wxListEvent&);
     void RefreshList();
     void RefreshDetailsFor(const std::string& plugin_id);
 
     wxListCtrl* m_list    = nullptr;
     wxTextCtrl* m_details = nullptr;
+    wxButton*   m_install = nullptr;
     wxButton*   m_reload  = nullptr;
     wxButton*   m_close   = nullptr;
 };

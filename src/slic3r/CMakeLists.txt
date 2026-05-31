@@ -482,6 +482,10 @@ set(SLIC3R_GUI_SOURCES
     GUI/WebDownPluginDlg.hpp
     GUI/PluginManagerDialog.cpp
     GUI/PluginManagerDialog.hpp
+    GUI/PluginPermissionDialog.cpp
+    GUI/PluginPermissionDialog.hpp
+    Utils/PluginInstaller.cpp
+    Utils/PluginInstaller.hpp
     GUI/WebGuideDialog.cpp
     GUI/WebGuideDialog.hpp
     GUI/WebUserLoginDialog.cpp

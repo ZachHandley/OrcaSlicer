@@ -1,13 +1,17 @@
 // Phase 4.2 — PluginManagerDialog implementation.
 
 #include "PluginManagerDialog.hpp"
+#include "PluginPermissionDialog.hpp"
 
 #include "orca/Session.hpp"
 #include "orca/Globals.hpp"
+#include "orca/Slicer.hpp"
 
+#include "../Utils/PluginInstaller.hpp"
 #include "libslic3r/Utils.hpp"   // Slic3r::data_dir
 
 #include <wx/button.h>
+#include <wx/filedlg.h>
 #include <wx/listctrl.h>
 #include <wx/msgdlg.h>
 #include <wx/sizer.h>
@@ -82,20 +86,23 @@ PluginManagerDialog::PluginManagerDialog(wxWindow* parent)
 
     // ---- buttons ----
     auto* btn_row = new wxBoxSizer(wxHORIZONTAL);
-    m_reload = new wxButton(this, wxID_ANY, "Reload all");
-    m_close  = new wxButton(this, wxID_CLOSE, "Close");
-    btn_row->Add(m_reload, 0, wxALL, 6);
+    m_install = new wxButton(this, wxID_ANY, "Install...");
+    m_reload  = new wxButton(this, wxID_ANY, "Reload all");
+    m_close   = new wxButton(this, wxID_CLOSE, "Close");
+    btn_row->Add(m_install, 0, wxALL, 6);
+    btn_row->Add(m_reload,  0, wxALL, 6);
     btn_row->AddStretchSpacer();
-    btn_row->Add(m_close,  0, wxALL, 6);
+    btn_row->Add(m_close,   0, wxALL, 6);
     outer->Add(btn_row, 0, wxEXPAND);
 
     SetSizer(outer);
     Layout();
 
-    m_reload->Bind(wxEVT_BUTTON, &PluginManagerDialog::OnReloadAll, this);
-    m_close ->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { EndModal(wxID_CLOSE); });
-    m_list  ->Bind(wxEVT_LIST_ITEM_SELECTED,
-                   &PluginManagerDialog::OnSelectionChanged, this);
+    m_install->Bind(wxEVT_BUTTON, &PluginManagerDialog::OnInstall,    this);
+    m_reload ->Bind(wxEVT_BUTTON, &PluginManagerDialog::OnReloadAll,  this);
+    m_close  ->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { EndModal(wxID_CLOSE); });
+    m_list   ->Bind(wxEVT_LIST_ITEM_SELECTED,
+                    &PluginManagerDialog::OnSelectionChanged, this);
 
     RefreshList();
 }
@@ -160,6 +167,83 @@ void PluginManagerDialog::RefreshDetailsFor(const std::string& plugin_id) {
 void PluginManagerDialog::OnSelectionChanged(wxListEvent& evt) {
     const auto id = m_list->GetItemText(evt.GetIndex(), COL_ID).utf8_string();
     RefreshDetailsFor(id);
+}
+
+void PluginManagerDialog::OnInstall(wxCommandEvent&) {
+    if (!::orca::has_session()) {
+        wxMessageBox("Engine session not available.", "Plugins",
+                     wxOK | wxICON_ERROR, this);
+        return;
+    }
+
+    wxFileDialog pick(this, "Install plugin",
+                      wxEmptyString, wxEmptyString,
+                      "Orca plugin archive (*.orcaplugin;*.zip)|*.orcaplugin;*.zip",
+                      wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (pick.ShowModal() != wxID_OK) return;
+
+    const std::filesystem::path archive = pick.GetPath().utf8_string();
+
+    // 1. Peek the manifest to learn what we're about to install.
+    auto peek = Slic3r::PluginInstaller::peek_identity(archive);
+    if (peek.status != Slic3r::PluginInstaller::Status::Ok) {
+        wxMessageBox("Plugin archive is invalid:\n" +
+                     wxString::FromUTF8(peek.error_message),
+                     "Plugins", wxOK | wxICON_ERROR, this);
+        return;
+    }
+
+    // 2. Permission prompt — Allow / Cancel.
+    PluginPermissionDialog perms(this,
+                                 peek.identity.id,
+                                 peek.identity.name,
+                                 peek.identity.version,
+                                 peek.identity.permissions);
+    if (perms.ShowModal() != wxID_OK) return;
+
+    // 3. Phase 4.3.3 hot-reload: if a slice is in progress, don't yank
+    //    the plugin's slot vtables out from under it. Block extraction
+    //    until the slicer is idle.
+    auto& session = ::orca::session();
+    if (session.slicer().is_busy()) {
+        wxMessageBox(
+            "Cannot install plugins while a slice is in progress.\n"
+            "Wait for the current job to finish and try again.",
+            "Plugins", wxOK | wxICON_WARNING, this);
+        return;
+    }
+
+    // 4. Extract into <data_dir>/plugins/<id>/, replacing any prior
+    //    install of the same id.
+    const auto plugins_root = std::filesystem::path(Slic3r::data_dir()) / "plugins";
+    std::error_code ec;
+    std::filesystem::create_directories(plugins_root, ec);
+
+    if (session.is_plugin_loaded(peek.identity.id))
+        session.unload_plugin(peek.identity.id);
+
+    auto inst = Slic3r::PluginInstaller::install(
+        archive, plugins_root, /*replace_existing=*/true);
+    if (inst.status != Slic3r::PluginInstaller::Status::Ok) {
+        wxMessageBox("Install failed:\n" + wxString::FromUTF8(inst.error_message),
+                     "Plugins", wxOK | wxICON_ERROR, this);
+        return;
+    }
+
+    // 5. Bring it online immediately.
+    auto load_rc = session.load_plugin(inst.install_dir);
+    if (!load_rc.ok()) {
+        wxMessageBox("Plugin installed but failed to load:\n" +
+                     wxString::FromUTF8(load_rc.error().message),
+                     "Plugins", wxOK | wxICON_WARNING, this);
+    } else {
+        wxMessageBox("Installed and loaded:\n" +
+                     wxString::FromUTF8(peek.identity.name) +
+                     " v" + wxString::FromUTF8(peek.identity.version),
+                     "Plugins", wxOK | wxICON_INFORMATION, this);
+    }
+
+    RefreshList();
 }
 
 void PluginManagerDialog::OnReloadAll(wxCommandEvent&) {
