@@ -77,6 +77,11 @@ constexpr const char* kOrcaWindowShim = R"JS(
             call('placeholder_set_float', { name, value }),
         loadProfilePack: (dir) => call('load_profile_pack', { dir }),
 
+        presets: {
+            getString: (key) => call('presets_get_string', { key }),
+            setString: (key, value) => call('presets_set_string', { key, value }),
+        },
+
         events: {
             on(kind, cb) {
                 const js_sub_id = __next_event_id++;
@@ -276,6 +281,58 @@ void WebViewPluginHost::OnScriptMessage(wxWebViewEvent& evt)
             event_subscriptions_.erase(it);
         }
         Reply(request_id, "null");
+        return;
+    }
+
+    if (action == "presets_get_string") {
+        if (!session_) {
+            ReplyError(request_id, error_tag(ORCA_ERR_INVALID_ARGUMENT));
+            return;
+        }
+        if (!has_perm(ORCA_PERM_SETTINGS_READ)) {
+            ReplyError(request_id, error_tag(ORCA_ERR_PERMISSION_DENIED));
+            return;
+        }
+        const std::string key = args.value("key", std::string{});
+        if (key.empty()) {
+            ReplyError(request_id, error_tag(ORCA_ERR_INVALID_ARGUMENT));
+            return;
+        }
+        auto* presets = reinterpret_cast<orca_presets_t*>(&session_->presets());
+        const char* out = nullptr;
+        const auto rc = orca_presets_opt_string(
+            presets, ORCA_SCOPE_FULL, key.c_str(), &out);
+        if (rc == ORCA_OK && out) {
+            nlohmann::json j = std::string{out};
+            Reply(request_id, wxString::FromUTF8(j.dump()));
+        } else if (rc == ORCA_ERR_NOT_FOUND) {
+            Reply(request_id, "null");
+        } else {
+            ReplyError(request_id, error_tag(rc));
+        }
+        return;
+    }
+
+    if (action == "presets_set_string") {
+        if (!session_) {
+            ReplyError(request_id, error_tag(ORCA_ERR_INVALID_ARGUMENT));
+            return;
+        }
+        if (!has_perm(ORCA_PERM_SETTINGS_WRITE)) {
+            ReplyError(request_id, error_tag(ORCA_ERR_PERMISSION_DENIED));
+            return;
+        }
+        const std::string key   = args.value("key",   std::string{});
+        const std::string value = args.value("value", std::string{});
+        if (key.empty()) {
+            ReplyError(request_id, error_tag(ORCA_ERR_INVALID_ARGUMENT));
+            return;
+        }
+        auto* presets = reinterpret_cast<orca_presets_t*>(&session_->presets());
+        const auto rc = orca_presets_set_string(
+            presets, ORCA_SCOPE_FULL, key.c_str(), value.c_str());
+        if (rc == ORCA_OK) Reply(request_id, "null");
+        else               ReplyError(request_id, error_tag(rc));
         return;
     }
 
