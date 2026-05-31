@@ -486,6 +486,10 @@ set(SLIC3R_GUI_SOURCES
     GUI/PluginMenuDispatcher.hpp
     GUI/PluginPermissionDialog.cpp
     GUI/PluginPermissionDialog.hpp
+    GUI/PluginSettingsDispatcher.cpp
+    GUI/PluginSettingsDispatcher.hpp
+    GUI/PluginUiBuilder.cpp
+    GUI/PluginUiBuilder.hpp
     Utils/PluginInstaller.cpp
     Utils/PluginInstaller.hpp
     GUI/WebGuideDialog.cpp

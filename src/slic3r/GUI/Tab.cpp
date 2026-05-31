@@ -1,6 +1,7 @@
 // #include "libslic3r/GCodeSender.hpp"
 //#include "slic3r/Utils/Serial.hpp"
 #include "Tab.hpp"
+#include "PluginSettingsDispatcher.hpp"
 #include "PresetHints.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -2770,6 +2771,10 @@ void TabPrint::build()
     //     optgroup->append_single_option_line(option);
 
     //     build_preset_description_line(optgroup.get());
+
+    // Phase 4.1.1 — let plugins append their own ORCA_SLOT_SETTINGS_PAGE
+    // pages after the built-in ones.
+    install_plugin_settings_pages_for(this, /*ORCA_SETTINGS_TAB_PRINT=*/0);
 }
 
 // Reload current config (aka presets->edited_preset->config) into the UI fields.
@@ -4194,6 +4199,8 @@ void TabFilament::build()
         optgroup->append_single_option_line(option);
 
         //build_preset_description_line(optgroup.get());
+
+        install_plugin_settings_pages_for(this, /*ORCA_SETTINGS_TAB_FILAMENT=*/1);
 }
 
 // Reload current config (aka presets->edited_preset->config) into the UI fields.
@@ -4406,6 +4413,8 @@ void TabPrinter::build()
     // ... and than for selected printer technology
     load_initial_data();
     m_printer_technology == ptSLA ? build_sla() : build_fff();
+
+    install_plugin_settings_pages_for(this, /*ORCA_SETTINGS_TAB_PRINTER=*/2);
 }
 
 void TabPrinter::build_fff()
