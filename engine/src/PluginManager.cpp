@@ -334,9 +334,14 @@ extern "C" orca_error_code_t host_placeholder_set_float_thunk(
 }
 
 extern "C" orca_error_code_t host_register_printer_agent_thunk(
-    const char* /*agent_id*/, const void* /*vtable*/, void* /*self*/)
+    const char* agent_id, const void* vtable, void* user_data)
 {
-    return ORCA_ERR_UNSUPPORTED; // Phase 2.4.
+    if (!agent_id || !*agent_id || !vtable) return ORCA_ERR_INVALID_ARGUMENT;
+    auto* impl = s_instance.load(std::memory_order_acquire);
+    if (!impl || !impl->registry) return ORCA_ERR_UNKNOWN;
+    const auto id = impl->registry->add_slot(
+        ORCA_SLOT_PRINTER_AGENT, vtable, user_data, /*priority=*/0);
+    return id != 0 ? ORCA_OK : ORCA_ERR_UNKNOWN;
 }
 
 extern "C" void host_string_free_thunk(const char* s)
