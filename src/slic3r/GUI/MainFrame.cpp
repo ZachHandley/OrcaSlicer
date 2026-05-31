@@ -27,6 +27,7 @@
 #include "orca/Config.hpp"
 
 #include "PluginManagerDialog.hpp"
+#include "PluginMenuDispatcher.hpp"
 #include "Tab.hpp"
 #include "ProgressStatusBar.hpp"
 #include "3DScene.hpp"
@@ -3413,6 +3414,13 @@ void MainFrame::init_menubar_as_editor()
             plater()->get_current_canvas3D()->force_set_focus();
         },
         "", nullptr, []() { return true; }, this);
+    // Phase 4.1.3 — append plugin-registered menu commands. Each call
+    // looks at ORCA_SLOT_MENU_COMMAND slots whose vtable->menu matches
+    // and inserts the item with a [plugin]-prefixed tooltip.
+    install_plugin_menu_items_for(fileMenu, /*ORCA_MENU_FILE=*/0);
+    if (editMenu) install_plugin_menu_items_for(editMenu, /*ORCA_MENU_EDIT=*/1);
+    if (viewMenu) install_plugin_menu_items_for(viewMenu, /*ORCA_MENU_VIEW=*/2);
+
     m_menubar->Append(fileMenu, wxString::Format("&%s", _L("File")));
     if (editMenu)
         m_menubar->Append(editMenu, wxString::Format("&%s", _L("Edit")));
@@ -3515,9 +3523,12 @@ void MainFrame::init_menubar_as_editor()
         [this](wxCommandEvent&) { wxLaunchDefaultBrowser("https://www.orcaslicer.com/wiki/calibration_guide", wxBROWSER_NEW_WINDOW); }, "", nullptr,
         [this]() {return m_plater->is_view3D_shown();; }, this);
 
+    install_plugin_menu_items_for(calib_menu, /*ORCA_MENU_TOOLS=*/3);
     m_menubar->Append(calib_menu,wxString::Format("&%s", _L("Calibration")));
-    if (helpMenu)
+    if (helpMenu) {
+        install_plugin_menu_items_for(helpMenu, /*ORCA_MENU_HELP=*/4);
         m_menubar->Append(helpMenu, wxString::Format("&%s", _L("Help")));
+    }
     SetMenuBar(m_menubar);
 
 #endif

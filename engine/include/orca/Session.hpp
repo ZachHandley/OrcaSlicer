@@ -112,6 +112,19 @@ public:
     };
     std::vector<ManifestInfo> plugin_manifests() const;
 
+    /// Public-shape mirror of the engine-internal SlotEntry for UI
+    /// dispatchers that need to iterate slots by kind without dragging
+    /// engine/src/ headers into their include path.
+    struct PluginSlotInfo {
+        std::uint64_t slot_id   = 0;
+        std::string   plugin_id;
+        std::uint32_t kind      = 0;    // orca_slot_kind_t value
+        const void*   vtable    = nullptr;
+        void*         user_data = nullptr;
+        int           priority  = 0;
+    };
+    std::vector<PluginSlotInfo> plugin_slots_of(std::uint32_t kind) const;
+
     // Read-only count of registered slots across all kinds. Useful for tests.
     std::size_t registered_slot_count() const;
 

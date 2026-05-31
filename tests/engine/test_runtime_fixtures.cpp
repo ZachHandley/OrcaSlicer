@@ -53,6 +53,36 @@ TEST_CASE("Phase 3.4.1 — native_noop fixture registers a pipeline observer slo
 }
 
 // ---------------------------------------------------------------------------
+// Phase 4.1.3 — Session::plugin_slots_of(kind) exposes registered slots
+// to GUI-side dispatchers (PluginMenuDispatcher etc.) without requiring
+// engine/src/PluginRegistry.hpp on their include path. Using the
+// native_noop fixture from 3.4.1 as a known-good observer slot.
+// ---------------------------------------------------------------------------
+TEST_CASE("Phase 4.1.3 — Session::plugin_slots_of returns registered slot info",
+          "[plugin][slots][accessor]") {
+    auto session = orca::Session::create();
+    REQUIRE(session != nullptr);
+
+    namespace fs = std::filesystem;
+    const fs::path plugin_dir = fs::path{TEST_FIXTURES_DIR} / "native_noop";
+    REQUIRE(session->load_plugin(plugin_dir).ok());
+
+    // ORCA_SLOT_PIPELINE_OBSERVER == 0x0001 in the C ABI.
+    const auto slots = session->plugin_slots_of(0x0001);
+    REQUIRE(slots.size() == 1);
+    CHECK(slots[0].plugin_id == "test.fixture.native_noop");
+    CHECK(slots[0].kind      == 0x0001);
+    CHECK(slots[0].vtable    != nullptr);
+
+    // No menu-command slots; native_noop only registers an observer.
+    const auto menus = session->plugin_slots_of(0x0102);  // ORCA_SLOT_MENU_COMMAND
+    CHECK(menus.empty());
+
+    REQUIRE(session->unload_plugin("test.fixture.native_noop").ok());
+    CHECK(session->plugin_slots_of(0x0001).empty());
+}
+
+// ---------------------------------------------------------------------------
 // Phase 3.4.2 — wasm_noop. WAT fixture that imports
 // orca_register_pipeline_observer and registers an in-guest observer
 // function from its orca_plugin_register export. Asserts the slot

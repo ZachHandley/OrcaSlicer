@@ -162,6 +162,19 @@ std::size_t Session::registered_slot_count() const {
     return impl_->registry.slot_count();
 }
 
+std::vector<Session::PluginSlotInfo>
+Session::plugin_slots_of(std::uint32_t kind) const {
+    std::vector<PluginSlotInfo> out;
+    for (const auto& e : impl_->registry.snapshot(
+             static_cast<orca_slot_kind_t>(kind))) {
+        out.push_back(PluginSlotInfo{
+            e.slot_id, e.plugin_id,
+            static_cast<std::uint32_t>(e.kind),
+            e.vtable, e.user_data, e.priority});
+    }
+    return out;
+}
+
 std::vector<Session::ManifestInfo> Session::plugin_manifests() const {
     std::vector<Session::ManifestInfo> out;
     for (const auto& m : impl_->registry.manifests()) {
