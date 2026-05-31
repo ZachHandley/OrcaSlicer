@@ -26,6 +26,7 @@
 
 #include "orca/Config.hpp"
 
+#include "PluginDeviceTabDispatcher.hpp"
 #include "PluginManagerDialog.hpp"
 #include "PluginMenuDispatcher.hpp"
 #include "Tab.hpp"
@@ -1360,6 +1361,9 @@ void MainFrame::init_tabpanel() {
     m_calibration = new CalibrationPanel(m_tabpanel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
     m_calibration->SetBackgroundColour(*wxWHITE);
     m_tabpanel->AddPage(m_calibration, _L("Calibration"), std::string("tab_calibration_active"), std::string("tab_calibration_active"), false);
+
+    // Phase 4.1.4 — append plugin-registered device tabs to the main tabpanel.
+    install_plugin_device_tabs_for(m_tabpanel);
 
     if (m_plater) {
         // load initial config

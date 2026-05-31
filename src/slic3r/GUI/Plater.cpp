@@ -1,4 +1,5 @@
 #include "Plater.hpp"
+#include "PluginSidebarDispatcher.hpp"
 #include "libslic3r/Config.hpp"
 #include "libslic3r_version.h"
 
@@ -2319,6 +2320,10 @@ Sidebar::Sidebar(Plater *parent)
     auto *sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(p->scrolled, 1, wxEXPAND);
     SetSizer(sizer);
+
+    // Phase 4.1.2 — append plugin-contributed sidebar panels under the
+    // built-in sidebar content.
+    install_plugin_sidebar_panels_for(this);
 }
 
 Sidebar::~Sidebar() {}

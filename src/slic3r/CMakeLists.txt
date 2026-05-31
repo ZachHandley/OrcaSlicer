@@ -488,6 +488,10 @@ set(SLIC3R_GUI_SOURCES
     GUI/PluginPermissionDialog.hpp
     GUI/PluginSettingsDispatcher.cpp
     GUI/PluginSettingsDispatcher.hpp
+    GUI/PluginDeviceTabDispatcher.cpp
+    GUI/PluginDeviceTabDispatcher.hpp
+    GUI/PluginSidebarDispatcher.cpp
+    GUI/PluginSidebarDispatcher.hpp
     GUI/PluginUiBuilder.cpp
     GUI/PluginUiBuilder.hpp
     Utils/PluginInstaller.cpp
