@@ -1,0 +1,24 @@
+{
+  "name": "@orca/klipper-pro-ui",
+  "version": "0.1.0",
+  "description": "Klipper-Pro webview dashboard.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "AGPL-3.0-or-later",
+  "packageManager": "pnpm@10.33.4",
+  "type": "module",
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14"
+  },
+  "dependencies": {
+    "@orca/plugin-types": "link:/home/zach/github/OrcaSlicer/sdk/typescript/plugin-types"
+  }
+}

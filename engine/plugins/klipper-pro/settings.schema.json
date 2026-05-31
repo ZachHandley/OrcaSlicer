@@ -1,0 +1,42 @@
+{
+  "title": "Klipper-Pro",
+  "fields": [
+    {
+      "key": "host",
+      "type": "string",
+      "label": "Printer host or IP",
+      "default": "klipper.local",
+      "description": "Hostname or IPv4 your Moonraker is reachable on. Falls back to mDNS discovery when set to 'auto'."
+    },
+    {
+      "key": "port",
+      "type": "int",
+      "label": "Moonraker port",
+      "default": 7125,
+      "min": 1,
+      "max": 65535
+    },
+    {
+      "key": "use_tls",
+      "type": "bool",
+      "label": "Use HTTPS",
+      "default": false,
+      "description": "Switch to https:// for printers behind a reverse proxy with TLS."
+    },
+    {
+      "key": "api_key",
+      "type": "string",
+      "label": "Moonraker API key",
+      "default": "",
+      "description": "Optional. Required when the [authorization] section in moonraker.conf demands one."
+    },
+    {
+      "key": "post_slice_action",
+      "type": "enum",
+      "label": "After slicing",
+      "options": ["upload_only", "upload_and_print", "prompt_each_time"],
+      "default": "prompt_each_time",
+      "description": "What Klipper-Pro should do with the freshly sliced .gcode."
+    }
+  ]
+}

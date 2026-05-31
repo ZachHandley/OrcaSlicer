@@ -1,0 +1,8 @@
+{
+  "id":          "com.orcaslicer.klipper-pro",
+  "name":        "Klipper-Pro",
+  "version":     "0.1.0",
+  "author":      "OrcaSlicer",
+  "description": "Send slices to Klipper-flavored printers via Moonraker.",
+  "permissions": ["network", "device_control", "ui_attach"]
+}

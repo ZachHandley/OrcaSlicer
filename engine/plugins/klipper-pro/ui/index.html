@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Klipper-Pro</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <header>
+    <h1>Klipper-Pro</h1>
+    <nav>
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="macros">Macros</button>
+      <button data-tab="settings">Settings</button>
+    </nav>
+  </header>
+
+  <section id="dashboard" class="panel active">
+    <h2>Slicer status</h2>
+    <ul class="status">
+      <li>Last slice: <span id="last-slice">none yet</span></li>
+      <li>Last export: <span id="last-export">none yet</span></li>
+      <li>Progress: <span id="progress">idle</span></li>
+    </ul>
+  </section>
+
+  <section id="macros" class="panel">
+    <h2>Macros</h2>
+    <p>
+      Macro browsing reads from <code>printer.gcode.help</code> on the
+      connected Moonraker. The agent has to surface that through an
+      <code>orca.agent.send</code> bridge action; the dashboard
+      lists nothing until that's wired.
+    </p>
+  </section>
+
+  <section id="settings" class="panel">
+    <h2>Settings</h2>
+    <p>
+      Configure the printer in OrcaSlicer's Plugin Manager →
+      Klipper-Pro settings. The plugin's
+      <code>settings.schema.json</code> drives the field set.
+    </p>
+  </section>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
