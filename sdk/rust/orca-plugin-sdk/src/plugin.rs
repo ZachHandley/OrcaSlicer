@@ -98,7 +98,7 @@ pub fn write_manifest<P: Plugin>(
 #[macro_export]
 macro_rules! export_plugin {
     ($plugin:ty) => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn orca_plugin_check_debug_consistent(_is_debug: i32) -> i32 {
             // Rust cdylib plugins use a single ABI regardless of the
             // engine's debug/release status — Cargo profiles don't
@@ -106,7 +106,7 @@ macro_rules! export_plugin {
             0
         }
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn orca_plugin_register(
             abi_version: u32,
             registry:    *mut $crate::abi::orca_plugin_registry_t,
@@ -127,7 +127,7 @@ macro_rules! export_plugin {
                 .unwrap_or_else(|e| e.as_code())
         }
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn orca_plugin_unregister() {
             <$plugin as $crate::Plugin>::unregister();
             $crate::ctx::clear_host();
