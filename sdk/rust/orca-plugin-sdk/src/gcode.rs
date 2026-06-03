@@ -27,15 +27,23 @@ pub trait GcodePostprocessor: Send + Sync + 'static {
 /// The processor lives for the rest of the plugin's lifetime; there
 /// is no unregister hook because slot lifetime mirrors plugin lifetime
 /// (PluginRegistry::remove_by_plugin scrubs everything on unload).
-pub fn register<P: GcodePostprocessor>(
+///
+/// # Safety
+///
+/// `registry` must be a valid, non-null pointer to an
+/// `orca_plugin_registry_t` owned by the engine and still live for the
+/// duration of this call. In practice this is the registry pointer the
+/// engine hands to `orca_plugin_register`; callers must not forge or
+/// outlive that pointer.
+pub unsafe fn register<P: GcodePostprocessor>(
     registry: *mut abi::orca_plugin_registry_t,
     processor: P,
 ) -> Result<u64> {
     unsafe extern "C" {
         fn orca_registry_add_slot(
-            r:         *mut abi::orca_plugin_registry_t,
-            kind:      u32,
-            vtable:    *const c_void,
+            r: *mut abi::orca_plugin_registry_t,
+            kind: u32,
+            vtable: *const c_void,
             user_data: *mut c_void,
         ) -> u64;
     }
@@ -52,18 +60,10 @@ pub fn register<P: GcodePostprocessor>(
     #[repr(C)]
     struct GcodeFilterVtable {
         struct_size: u32,
-        filter: extern "C" fn(
-            path:   *const core::ffi::c_char,
-            handle: u64,
-            ud:     *mut c_void,
-        ) -> i32,
+        filter: extern "C" fn(path: *const core::ffi::c_char, handle: u64, ud: *mut c_void) -> i32,
     }
 
-    extern "C" fn thunk(
-        path:    *const core::ffi::c_char,
-        _handle: u64,
-        ud:      *mut c_void,
-    ) -> i32 {
+    extern "C" fn thunk(path: *const core::ffi::c_char, _handle: u64, ud: *mut c_void) -> i32 {
         if path.is_null() || ud.is_null() {
             return abi::ORCA_ERR_INVALID_ARGUMENT;
         }
@@ -73,17 +73,16 @@ pub fn register<P: GcodePostprocessor>(
             Err(_) => return abi::ORCA_ERR_INVALID_ARGUMENT,
         };
         match proc_ref.filter(std::path::Path::new(path_str)) {
-            Ok(())  => abi::ORCA_OK,
-            Err(e)  => e.as_code(),
+            Ok(()) => abi::ORCA_OK,
+            Err(e) => e.as_code(),
         }
     }
 
     // Leak the vtable too so its lifetime spans the plugin's life.
-    let vtable: &'static GcodeFilterVtable =
-        Box::leak(Box::new(GcodeFilterVtable {
-            struct_size: core::mem::size_of::<GcodeFilterVtable>() as u32,
-            filter: thunk,
-        }));
+    let vtable: &'static GcodeFilterVtable = Box::leak(Box::new(GcodeFilterVtable {
+        struct_size: core::mem::size_of::<GcodeFilterVtable>() as u32,
+        filter: thunk,
+    }));
 
     let slot_id = unsafe {
         orca_registry_add_slot(
@@ -93,7 +92,11 @@ pub fn register<P: GcodePostprocessor>(
             processor_ptr,
         )
     };
-    if slot_id == 0 { Err(Error::Unknown) } else { Ok(slot_id) }
+    if slot_id == 0 {
+        Err(Error::Unknown)
+    } else {
+        Ok(slot_id)
+    }
 }
 
 /// Convenience: turn a path into a CString, useful for postprocessors

@@ -1,0 +1,10 @@
+{
+  "id":          "com.orcaslicer.sample-profiles",
+  "name":        "OrcaForge Showcase Profile Pack",
+  "version":     "0.1.0",
+  "kind":        "data",
+  "author":      "BlackLeafDigital",
+  "description": "Sample profile pack demonstrating the OrcaForge data-plugin path. Provides one printer + one filament + one print profile.",
+  "provides":    ["profile_pack"],
+  "permissions": ["profiles_install"]
+}

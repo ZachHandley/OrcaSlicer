@@ -42,6 +42,7 @@ namespace Slic3r {
 
 static const std::string VERSION_CHECK_URL = "https://check-version.orcaslicer.com/latest";
 static const std::string PROFILE_UPDATE_URL = "https://check-version.orcaslicer.com/profile";
+static const std::string ORCAFORGE_BASE_URL = "https://orcaforge.blackleafdigital.com";
 static const std::string MODELS_STR = "models";
 
 const std::string AppConfig::SECTION_FILAMENTS = "filaments";
@@ -1719,6 +1720,15 @@ std::string AppConfig::version_check_url() const
 std::string AppConfig::profile_update_url() const
 {
     return PROFILE_UPDATE_URL;
+}
+
+std::string AppConfig::orcaforge_base_url() const
+{
+    // Defer to the ini override (key `orcaforge_base_url`) if present, so
+    // QA/staging environments can repoint the MarketplaceClient without a
+    // rebuild.
+    auto from_settings = get("orcaforge_base_url");
+    return from_settings.empty() ? ORCAFORGE_BASE_URL : from_settings;
 }
 
 bool AppConfig::exists()

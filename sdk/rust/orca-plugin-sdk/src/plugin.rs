@@ -41,27 +41,33 @@ pub trait Plugin: Sized + 'static {
 /// and pass it to `orca_registry_set_manifest`. Plugin authors usually
 /// reach this through the export_plugin! macro instead of calling it
 /// directly.
-pub fn write_manifest<P: Plugin>(
-    registry: *mut abi::orca_plugin_registry_t,
-) -> Result<()> {
+///
+/// # Safety
+///
+/// `registry` must be a valid, non-null pointer to an
+/// `orca_plugin_registry_t` owned by the engine and still live for the
+/// duration of this call. In practice this is the registry pointer the
+/// engine hands to `orca_plugin_register`; callers must not forge or
+/// outlive that pointer.
+pub unsafe fn write_manifest<P: Plugin>(registry: *mut abi::orca_plugin_registry_t) -> Result<()> {
+    use crate::error::Error;
     use core::mem::size_of;
     use std::ffi::CString;
-    use crate::error::Error;
 
     // CStrings live until end of scope, which is after the registry
     // call returns — pointers stay valid throughout.
-    let id   = CString::new(P::ID         ).map_err(|_| Error::InvalidArgument)?;
-    let name = CString::new(P::NAME       ).map_err(|_| Error::InvalidArgument)?;
-    let ver  = CString::new(P::VERSION    ).map_err(|_| Error::InvalidArgument)?;
-    let auth = CString::new(P::AUTHOR     ).map_err(|_| Error::InvalidArgument)?;
+    let id = CString::new(P::ID).map_err(|_| Error::InvalidArgument)?;
+    let name = CString::new(P::NAME).map_err(|_| Error::InvalidArgument)?;
+    let ver = CString::new(P::VERSION).map_err(|_| Error::InvalidArgument)?;
+    let auth = CString::new(P::AUTHOR).map_err(|_| Error::InvalidArgument)?;
     let desc = CString::new(P::DESCRIPTION).map_err(|_| Error::InvalidArgument)?;
 
     let manifest = abi::orca_plugin_manifest_t {
         struct_size: size_of::<abi::orca_plugin_manifest_t>() as u32,
-        id:          id.as_ptr(),
-        name:        name.as_ptr(),
-        version:     ver.as_ptr(),
-        author:      auth.as_ptr(),
+        id: id.as_ptr(),
+        name: name.as_ptr(),
+        version: ver.as_ptr(),
+        author: auth.as_ptr(),
         description: desc.as_ptr(),
         permissions: P::PERMISSIONS,
     };
@@ -109,8 +115,8 @@ macro_rules! export_plugin {
         #[unsafe(no_mangle)]
         pub extern "C" fn orca_plugin_register(
             abi_version: u32,
-            registry:    *mut $crate::abi::orca_plugin_registry_t,
-            host:        *const $crate::abi::orca_plugin_host_t,
+            registry: *mut $crate::abi::orca_plugin_registry_t,
+            host: *const $crate::abi::orca_plugin_host_t,
         ) -> i32 {
             if abi_version != $crate::abi::ABI_VERSION {
                 return $crate::abi::ORCA_ERR_UNSUPPORTED;
@@ -119,7 +125,10 @@ macro_rules! export_plugin {
             // SAFETY: host is engine-owned, valid until unregister.
             $crate::ctx::set_host(host);
 
-            if let Err(e) = $crate::plugin::write_manifest::<$plugin>(registry) {
+            // SAFETY: `registry` is the engine-owned pointer the host
+            // just handed us in `orca_plugin_register`; it stays valid
+            // for the duration of this call.
+            if let Err(e) = unsafe { $crate::plugin::write_manifest::<$plugin>(registry) } {
                 return e.as_code();
             }
             $crate::ctx::with_host(|ctx| <$plugin as $crate::Plugin>::register(ctx))

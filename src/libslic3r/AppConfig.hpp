@@ -320,6 +320,10 @@ public:
 	// Get the Orca profile update url.
 	std::string 		profile_update_url() const;
 
+	// Get the OrcaForge marketplace base URL. Overridable via the
+	// `orcaforge_base_url` key in settings.ini.
+	std::string 		orcaforge_base_url() const;
+
 	// Returns the original Slic3r version found in the ini file before it was overwritten
 	// by the current version
 	Semver 				orig_version() const { return m_orig_version; }

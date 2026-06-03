@@ -16,9 +16,9 @@ mod unpack;
 
 #[derive(Parser, Debug)]
 #[command(
-    name    = "orca-plugin-verify",
+    name = "orca-plugin-verify",
     version,
-    about   = "Validate an Orca plugin against the engine ABI before shipping.",
+    about = "Validate an Orca plugin against the engine ABI before shipping."
 )]
 struct Args {
     /// Path to a `.orcaplugin` zip OR an unpacked plugin directory.
@@ -40,11 +40,9 @@ fn main() -> ExitCode {
     let args = Args::parse();
 
     let unpacked = match unpack::resolve(&args.path) {
-        Ok(u)  => u,
+        Ok(u) => u,
         Err(e) => {
-            let r = report::Report::error(
-                "unpack",
-                format!("could not resolve plugin path: {e}"));
+            let r = report::Report::error("unpack", format!("could not resolve plugin path: {e}"));
             r.print(args.json);
             return ExitCode::from(1);
         }
@@ -53,5 +51,9 @@ fn main() -> ExitCode {
     let report = checks::run(&unpacked.root, args.smoke);
     report.print(args.json);
 
-    if report.passed() { ExitCode::SUCCESS } else { ExitCode::from(1) }
+    if report.passed() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
 }

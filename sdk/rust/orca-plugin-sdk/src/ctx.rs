@@ -7,8 +7,8 @@ use crate::abi;
 use crate::error::Result;
 
 use core::ffi::CStr;
-use core::sync::atomic::{AtomicPtr, Ordering};
 use core::ptr::null_mut;
+use core::sync::atomic::{AtomicPtr, Ordering};
 use std::ffi::CString;
 
 /// Per-plugin context — wraps the engine's `orca_plugin_host_t`.
@@ -26,8 +26,8 @@ unsafe impl Sync for Ctx {}
 pub enum LogLevel {
     Trace = 0,
     Debug = 1,
-    Info  = 2,
-    Warn  = 3,
+    Info = 2,
+    Warn = 3,
     Error = 4,
 }
 
@@ -39,9 +39,15 @@ impl Ctx {
         }
     }
 
-    pub fn log_info (&self, msg: &str) { self.log(LogLevel::Info,  msg); }
-    pub fn log_warn (&self, msg: &str) { self.log(LogLevel::Warn,  msg); }
-    pub fn log_error(&self, msg: &str) { self.log(LogLevel::Error, msg); }
+    pub fn log_info(&self, msg: &str) {
+        self.log(LogLevel::Info, msg);
+    }
+    pub fn log_warn(&self, msg: &str) {
+        self.log(LogLevel::Warn, msg);
+    }
+    pub fn log_error(&self, msg: &str) {
+        self.log(LogLevel::Error, msg);
+    }
 
     pub fn placeholder_set_string(&self, name: &str, value: &str) -> Result<()> {
         let host = unsafe { &*self.host };
@@ -82,8 +88,7 @@ impl Ctx {
 // orca_plugin_register and the with_host helper can read it from any
 // thread without UB.
 
-static HOST: AtomicPtr<abi::orca_plugin_host_t> =
-    AtomicPtr::new(null_mut());
+static HOST: AtomicPtr<abi::orca_plugin_host_t> = AtomicPtr::new(null_mut());
 
 #[doc(hidden)]
 pub fn set_host(p: *const abi::orca_plugin_host_t) {
@@ -112,20 +117,28 @@ where
 // Allow the macro and integrations to skip the conversion bound when
 // the closure already returns a Result.
 impl From<crate::Error> for Result<()> {
-    fn from(e: crate::Error) -> Self { Err(e) }
+    fn from(e: crate::Error) -> Self {
+        Err(e)
+    }
 }
 
 /// Borrow-style variant for callers that just want an Option<&Ctx>.
 pub fn current() -> Option<Ctx> {
     let p = HOST.load(Ordering::Acquire) as *const abi::orca_plugin_host_t;
-    if p.is_null() { None } else { Some(Ctx { host: p }) }
+    if p.is_null() {
+        None
+    } else {
+        Some(Ctx { host: p })
+    }
 }
 
 /// Read a NUL-terminated C string handed back by the host. Frees the
 /// buffer via host->string_free; safe to call only on pointers the host
 /// allocated.
 pub(crate) unsafe fn take_host_string(s: *const core::ffi::c_char) -> Option<String> {
-    if s.is_null() { return None; }
+    if s.is_null() {
+        return None;
+    }
     let owned = unsafe { CStr::from_ptr(s).to_string_lossy().into_owned() };
     if let Some(ctx) = current() {
         let host = unsafe { &*ctx.host() };

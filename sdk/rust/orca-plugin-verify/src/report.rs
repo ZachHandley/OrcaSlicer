@@ -18,23 +18,39 @@ pub enum Status {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckResult {
-    pub name:   String,
+    pub name: String,
     pub status: Status,
     pub detail: String,
 }
 
 impl CheckResult {
     pub fn pass(name: impl Into<String>) -> Self {
-        Self { name: name.into(), status: Status::Pass, detail: String::new() }
+        Self {
+            name: name.into(),
+            status: Status::Pass,
+            detail: String::new(),
+        }
     }
     pub fn fail(name: impl Into<String>, detail: impl Into<String>) -> Self {
-        Self { name: name.into(), status: Status::Fail, detail: detail.into() }
+        Self {
+            name: name.into(),
+            status: Status::Fail,
+            detail: detail.into(),
+        }
     }
     pub fn warn(name: impl Into<String>, detail: impl Into<String>) -> Self {
-        Self { name: name.into(), status: Status::Warn, detail: detail.into() }
+        Self {
+            name: name.into(),
+            status: Status::Warn,
+            detail: detail.into(),
+        }
     }
     pub fn skip(name: impl Into<String>, detail: impl Into<String>) -> Self {
-        Self { name: name.into(), status: Status::Skip, detail: detail.into() }
+        Self {
+            name: name.into(),
+            status: Status::Skip,
+            detail: detail.into(),
+        }
     }
 }
 
@@ -44,7 +60,9 @@ pub struct Report {
 }
 
 impl Report {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn push(&mut self, r: CheckResult) {
         self.checks.push(r);
@@ -84,11 +102,29 @@ impl Report {
                 }
             }
         }
-        let pass_count = self.checks.iter().filter(|c| c.status == Status::Pass).count();
-        let fail_count = self.checks.iter().filter(|c| c.status == Status::Fail).count();
-        let warn_count = self.checks.iter().filter(|c| c.status == Status::Warn).count();
-        let skip_count = self.checks.iter().filter(|c| c.status == Status::Skip).count();
-        let _ = writeln!(err,
-            "\nsummary: {pass_count} pass / {fail_count} fail / {warn_count} warn / {skip_count} skip");
+        let pass_count = self
+            .checks
+            .iter()
+            .filter(|c| c.status == Status::Pass)
+            .count();
+        let fail_count = self
+            .checks
+            .iter()
+            .filter(|c| c.status == Status::Fail)
+            .count();
+        let warn_count = self
+            .checks
+            .iter()
+            .filter(|c| c.status == Status::Warn)
+            .count();
+        let skip_count = self
+            .checks
+            .iter()
+            .filter(|c| c.status == Status::Skip)
+            .count();
+        let _ = writeln!(
+            err,
+            "\nsummary: {pass_count} pass / {fail_count} fail / {warn_count} warn / {skip_count} skip"
+        );
     }
 }

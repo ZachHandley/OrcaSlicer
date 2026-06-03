@@ -28,6 +28,7 @@
 
 #include "PluginDeviceTabDispatcher.hpp"
 #include "PluginManagerDialog.hpp"
+#include "MarketplaceDialog.hpp"
 #include "PluginMenuDispatcher.hpp"
 #include "Tab.hpp"
 #include "ProgressStatusBar.hpp"
@@ -2565,6 +2566,15 @@ static wxMenu* generate_help_menu()
     append_menu_item(helpMenu, wxID_ANY, _L("Plugins..."), _L("Manage installed plugins"),
             [](wxCommandEvent&) {
                 Slic3r::GUI::PluginManagerDialog dlg(
+                    static_cast<wxWindow*>(wxGetApp().mainframe));
+                dlg.ShowModal();
+            });
+
+    // Phase 4.4 — Plugin Marketplace dialog (see MarketplaceDialog.{hpp,cpp}).
+    append_menu_item(helpMenu, wxID_ANY, _L("Plugin Marketplace..."),
+            _L("Browse and install Orca plugins"),
+            [](wxCommandEvent&) {
+                Slic3r::GUI::MarketplaceDialog dlg(
                     static_cast<wxWindow*>(wxGetApp().mainframe));
                 dlg.ShowModal();
             });

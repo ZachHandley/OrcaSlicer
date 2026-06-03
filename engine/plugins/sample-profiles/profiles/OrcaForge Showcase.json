@@ -1,0 +1,30 @@
+{
+    "name": "OrcaForge Showcase",
+    "version": "02.04.00.00",
+    "force_update": "0",
+    "description": "OrcaForge Showcase sample profile pack — not a real printer. Demonstrates the data-plugin path end-to-end.",
+    "machine_model_list": [
+        {
+            "name": "OrcaForge Showcase",
+            "sub_path": "machine/OrcaForge Showcase.json"
+        }
+    ],
+    "process_list": [
+        {
+            "name": "0.20mm Standard @OrcaForge Showcase",
+            "sub_path": "process/0.20mm Standard @OrcaForge Showcase.json"
+        }
+    ],
+    "filament_list": [
+        {
+            "name": "OrcaForge Showcase PLA",
+            "sub_path": "filament/OrcaForge Showcase PLA.json"
+        }
+    ],
+    "machine_list": [
+        {
+            "name": "OrcaForge Showcase 0.4 nozzle",
+            "sub_path": "machine/OrcaForge Showcase 0.4 nozzle.json"
+        }
+    ]
+}

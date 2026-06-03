@@ -3,7 +3,7 @@
 //! orca_event_kind_t) and its payload struct layout.
 
 use crate::abi;
-use crate::ctx::{current, Ctx};
+use crate::ctx::{Ctx, current};
 use core::ffi::c_void;
 
 /// Tag trait every typed event implements. The compiler is happy
@@ -19,14 +19,14 @@ pub trait Event {
 }
 
 // Event-kind constants matching the ORCA_EVT_* enum.
-pub const KIND_SLICING_PROGRESS:    u32 = 1;
-pub const KIND_SLICING_FINISHED:    u32 = 2;
-pub const KIND_EXPORT_BEGAN:        u32 = 3;
-pub const KIND_EXPORT_FINISHED:     u32 = 4;
-pub const KIND_PRESET_CHANGED:      u32 = 5;
-pub const KIND_PROJECT_LOADED:      u32 = 6;
-pub const KIND_OBJECT_ADDED:        u32 = 7;
-pub const KIND_OBJECT_REMOVED:      u32 = 8;
+pub const KIND_SLICING_PROGRESS: u32 = 1;
+pub const KIND_SLICING_FINISHED: u32 = 2;
+pub const KIND_EXPORT_BEGAN: u32 = 3;
+pub const KIND_EXPORT_FINISHED: u32 = 4;
+pub const KIND_PRESET_CHANGED: u32 = 5;
+pub const KIND_PROJECT_LOADED: u32 = 6;
+pub const KIND_OBJECT_ADDED: u32 = 7;
+pub const KIND_OBJECT_REMOVED: u32 = 8;
 // 9..=17 are pipeline events from Phase 1.3.4; one struct per kind.
 
 // ---------- Payload mirrors (must match c_api.h exactly) -------------
@@ -34,43 +34,43 @@ use core::ffi::c_char;
 
 #[repr(C)]
 pub struct SlicingProgressPayload {
-    pub handle:   u64,
+    pub handle: u64,
     pub progress: f32,
-    pub message:  *const c_char,
+    pub message: *const c_char,
 }
 
 #[repr(C)]
 pub struct SlicingFinishedPayload {
-    pub handle:  u64,
+    pub handle: u64,
     pub success: bool,
-    pub error:   *const c_char,
+    pub error: *const c_char,
 }
 
 #[repr(C)]
 pub struct ExportFinishedPayload {
-    pub handle:     u64,
-    pub success:    bool,
+    pub handle: u64,
+    pub success: bool,
     pub line_count: usize,
-    pub error:      *const c_char,
+    pub error: *const c_char,
 }
 
 // ---------- Typed event tags -----------------------------------------
 pub struct SlicingProgress;
 impl Event for SlicingProgress {
     const KIND: u32 = KIND_SLICING_PROGRESS;
-    type Payload    = SlicingProgressPayload;
+    type Payload = SlicingProgressPayload;
 }
 
 pub struct SlicingFinished;
 impl Event for SlicingFinished {
     const KIND: u32 = KIND_SLICING_FINISHED;
-    type Payload    = SlicingFinishedPayload;
+    type Payload = SlicingFinishedPayload;
 }
 
 pub struct ExportFinished;
 impl Event for ExportFinished {
     const KIND: u32 = KIND_EXPORT_FINISHED;
-    type Payload    = ExportFinishedPayload;
+    type Payload = ExportFinishedPayload;
 }
 
 /// Subscription handle returned by `subscribe`. Call `unsubscribe` on
@@ -79,7 +79,9 @@ impl Event for ExportFinished {
 pub struct Subscription(abi::orca_subscription_id_t);
 
 impl Subscription {
-    pub fn id(self) -> u64 { self.0 }
+    pub fn id(self) -> u64 {
+        self.0
+    }
 }
 
 /// Subscribe to a typed event. Returns the subscription id (or None
@@ -96,12 +98,13 @@ where
     let ctx = current()?;
     let host = unsafe { &*ctx.host() };
 
-    let boxed: Box<dyn Fn(*const c_void) + Send + Sync> = Box::new(
-        move |p| {
-            // SAFETY: the C side hands us a pointer whose layout matches
-            // E::Payload because we registered under E::KIND.
-            unsafe { handler(&*(p as *const E::Payload)); }
-        });
+    let boxed: Box<dyn Fn(*const c_void) + Send + Sync> = Box::new(move |p| {
+        // SAFETY: the C side hands us a pointer whose layout matches
+        // E::Payload because we registered under E::KIND.
+        unsafe {
+            handler(&*(p as *const E::Payload));
+        }
+    });
     let raw = Box::into_raw(Box::new(boxed)) as *mut c_void;
 
     extern "C" fn trampoline(_kind: u32, payload: *const c_void, ud: *mut c_void) {
@@ -130,4 +133,6 @@ pub fn unsubscribe(sub: Subscription) {
 }
 
 // Helper kept for symmetry — currently unused.
-fn ctx_for(_: Subscription) -> Option<Ctx> { current() }
+fn ctx_for(_: Subscription) -> Option<Ctx> {
+    current()
+}

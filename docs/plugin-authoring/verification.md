@@ -36,7 +36,7 @@ plugin directory. Zips are extracted to a tempdir and cleaned up on exit.
 | `manifest`     | id reverse-DNS-shaped; version valid semver; permissions in known set              | FAIL                 |
 | `schema`       | optional `settings.schema.json` parses as JSON Schema 2020-12                      | FAIL                 |
 | `abi`          | binary loads, calls `orca_plugin_register`, returns `ORCA_OK`                      | FAIL                 |
-| `slots`        | `manifest.provides[]` equals the slot kinds the binary actually registered         | FAIL                 |
+| `slots`        | `manifest.provides[]` equals the slot kinds the binary actually registered (see data-kind exception below) | FAIL                 |
 | `permissions`  | every slot-implied + import-implied permission is declared in `manifest.permissions` | FAIL / WARN          |
 | `smoke`        | (opt-in) plugin survives load → unload → reload cycle                              | FAIL                 |
 
@@ -70,6 +70,29 @@ printer_agent         profile_pack
 settings_page         device_tab
 menu_command          sidebar_panel
 ```
+
+### `slots` check — data-kind exception
+
+For `kind: data` plugins, the slots check trusts the manifest because there
+is no binary to handshake. The check runs in a separate, manifest-only
+mode:
+
+- `provides[]` MUST be non-empty — a data plugin that doesn't advertise
+  anything is rejected (`data plugin must declare at least one slot it
+  provides`).
+- Slot kinds that require a runtime registration — `printer_agent`,
+  `pipeline_observer`, `pipeline_interceptor`, `gcode_filter`,
+  `placeholder_provider`, `settings_page`, `device_tab`, `menu_command`,
+  `sidebar_panel` — are rejected for data plugins, because there's no
+  binary to register them.
+- Data-loadable slot kinds — currently just `profile_pack` (loaded by
+  `PresetBundle::load_vendor_configs_from_json` from the staged tree) —
+  are accepted, and the check emits `[SKIP] slots` with a detail like
+  `data plugin: manifest asserts ["profile_pack"]`.
+
+For `kind: native | wasm | hybrid` (and `webview` when it registers slots),
+the original equality check still applies: the recorded ABI-handshake slot
+set must match `provides[]`.
 
 Known permission strings: `network`, `filesystem_read`, `filesystem_write`,
 `settings_read`, `settings_write`, `profiles_install`, `device_control`,

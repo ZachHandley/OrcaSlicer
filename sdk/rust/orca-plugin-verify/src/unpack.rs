@@ -25,7 +25,10 @@ pub struct Unpacked {
 pub fn resolve(input: &Path) -> io::Result<Unpacked> {
     let meta = fs::metadata(input)?;
     if meta.is_dir() {
-        return Ok(Unpacked { root: input.to_path_buf(), _tmp: None });
+        return Ok(Unpacked {
+            root: input.to_path_buf(),
+            _tmp: None,
+        });
     }
 
     let tmp = TempDir::new()?;
@@ -40,20 +43,27 @@ pub fn resolve(input: &Path) -> io::Result<Unpacked> {
         target
     };
 
-    Ok(Unpacked { root, _tmp: Some(tmp) })
+    Ok(Unpacked {
+        root,
+        _tmp: Some(tmp),
+    })
 }
 
 fn extract_zip(archive: &Path, dest: &Path) -> io::Result<()> {
-    let file    = fs::File::open(archive)?;
-    let mut zip = zip::ZipArchive::new(file)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let file = fs::File::open(archive)?;
+    let mut zip =
+        zip::ZipArchive::new(file).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     for i in 0..zip.len() {
-        let mut entry = zip.by_index(i)
+        let mut entry = zip
+            .by_index(i)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        let raw_name = entry.enclosed_name().ok_or_else(|| io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("zip entry {i} has an invalid path (possible zip-slip)")))?;
+        let raw_name = entry.enclosed_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("zip entry {i} has an invalid path (possible zip-slip)"),
+            )
+        })?;
         let out_path = dest.join(raw_name);
 
         if entry.is_dir() {
@@ -73,8 +83,7 @@ fn extract_zip(archive: &Path, dest: &Path) -> io::Result<()> {
         {
             use std::os::unix::fs::PermissionsExt;
             if let Some(mode) = entry.unix_mode() {
-                let _ = fs::set_permissions(&out_path,
-                    fs::Permissions::from_mode(mode));
+                let _ = fs::set_permissions(&out_path, fs::Permissions::from_mode(mode));
             }
         }
     }

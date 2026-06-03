@@ -4,9 +4,9 @@
 //!   - `id`        — reverse-DNS-ish, regex `^[a-z0-9][a-z0-9.\-_]*\.[a-z0-9.\-_]+$`
 //!   - `version`   — valid semver (parsed with the `semver` crate)
 //!   - `kind`      — optional; defaults to "native"; one of {native, wasm,
-//!                   webview, data, hybrid}
+//!     webview, data, hybrid}
 //!   - `permissions[]` — strings, each must be in the known set declared in
-//!                       orca-plugin-sdk.
+//!     orca-plugin-sdk.
 //!
 //! Fields not validated by this pass (delegated to ABI check):
 //!   - whether the declared binary actually exists on disk
@@ -38,16 +38,10 @@ const KNOWN_KINDS: &[&str] = &["native", "wasm", "webview", "data", "hybrid"];
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ParsedManifest {
-    pub id:          String,
-    pub version:     String,
+    pub id: String,
+    pub version: String,
     #[serde(default)]
-    pub name:        String,
-    #[serde(default)]
-    pub author:      String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub kind:        Option<String>,
+    pub kind: Option<String>,
     #[serde(default)]
     pub permissions: Vec<String>,
     /// Slot kinds the plugin declares it will register. Engine doesn't
@@ -55,11 +49,13 @@ pub struct ParsedManifest {
     /// drift between what the manifest claims and what the binary actually
     /// registers via the C ABI.
     #[serde(default)]
-    pub provides:    Vec<String>,
+    pub provides: Vec<String>,
 }
 
 impl ParsedManifest {
-    pub fn kind(&self) -> &str { self.kind.as_deref().unwrap_or("native") }
+    pub fn kind(&self) -> &str {
+        self.kind.as_deref().unwrap_or("native")
+    }
 }
 
 pub struct Outcome {
@@ -69,22 +65,22 @@ pub struct Outcome {
 
 pub fn check(path: &Path) -> Outcome {
     let bytes = match std::fs::read(path) {
-        Ok(b)  => b,
-        Err(e) => return Outcome {
-            result: CheckResult::fail(
-                "manifest",
-                format!("read {}: {e}", path.display())),
-            parsed: None,
-        },
+        Ok(b) => b,
+        Err(e) => {
+            return Outcome {
+                result: CheckResult::fail("manifest", format!("read {}: {e}", path.display())),
+                parsed: None,
+            };
+        }
     };
     let parsed: ParsedManifest = match serde_json::from_slice(&bytes) {
-        Ok(p)  => p,
-        Err(e) => return Outcome {
-            result: CheckResult::fail(
-                "manifest",
-                format!("invalid JSON: {e}")),
-            parsed: None,
-        },
+        Ok(p) => p,
+        Err(e) => {
+            return Outcome {
+                result: CheckResult::fail("manifest", format!("invalid JSON: {e}")),
+                parsed: None,
+            };
+        }
     };
 
     let mut errors = Vec::<String>::new();
@@ -92,27 +88,25 @@ pub fn check(path: &Path) -> Outcome {
     if !is_valid_id(&parsed.id) {
         errors.push(format!(
             "id {:?} must be lowercase, reverse-DNS-shaped (e.g. com.example.foo)",
-            parsed.id));
+            parsed.id
+        ));
     }
 
     if let Err(e) = semver::Version::parse(&parsed.version) {
         errors.push(format!(
             "version {:?} is not valid semver: {e}",
-            parsed.version));
+            parsed.version
+        ));
     }
 
     let kind = parsed.kind();
     if !KNOWN_KINDS.contains(&kind) {
-        errors.push(format!(
-            "kind {:?} not in {KNOWN_KINDS:?}",
-            kind));
+        errors.push(format!("kind {:?} not in {KNOWN_KINDS:?}", kind));
     }
 
     for p in &parsed.permissions {
         if !KNOWN_PERMISSIONS.contains(&p.as_str()) {
-            errors.push(format!(
-                "permission {:?} not in {KNOWN_PERMISSIONS:?}",
-                p));
+            errors.push(format!("permission {:?} not in {KNOWN_PERMISSIONS:?}", p));
         }
     }
 
@@ -131,13 +125,21 @@ pub fn check(path: &Path) -> Outcome {
 }
 
 fn is_valid_id(id: &str) -> bool {
-    if id.is_empty() { return false; }
-    if !id.contains('.') { return false; }
+    if id.is_empty() {
+        return false;
+    }
+    if !id.contains('.') {
+        return false;
+    }
     for (i, c) in id.chars().enumerate() {
         match c {
             'a'..='z' | '0'..='9' => {}
-            '.' | '-' | '_'        => { if i == 0 { return false; } }
-            _                      => return false,
+            '.' | '-' | '_' => {
+                if i == 0 {
+                    return false;
+                }
+            }
+            _ => return false,
         }
     }
     true

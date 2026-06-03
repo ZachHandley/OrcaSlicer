@@ -38,7 +38,8 @@ pub fn run(root: &Path, smoke: bool) -> Report {
     } else {
         report.push(CheckResult::skip(
             "schema",
-            "no settings.schema.json — skipped"));
+            "no settings.schema.json — skipped",
+        ));
     }
 
     // 4. ABI handshake — load the binary (native or wasm) and record the

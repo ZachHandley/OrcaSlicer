@@ -44,9 +44,12 @@ fn reload_native(path: &std::path::Path) -> CheckResult {
                     // cycle this pass is exercising. Calling register/
                     // unregister inside is duplicative with the ABI check.
                 }
-                Err(e) => return CheckResult::fail(
-                    "smoke",
-                    format!("native reload pass {pass} failed: {e}")),
+                Err(e) => {
+                    return CheckResult::fail(
+                        "smoke",
+                        format!("native reload pass {pass} failed: {e}"),
+                    );
+                }
             }
         }
     }
@@ -57,10 +60,8 @@ fn reload_wasm(path: &std::path::Path) -> CheckResult {
     use wasmtime::*;
     let engine = Engine::default();
     let module = match Module::from_file(&engine, path) {
-        Ok(m)  => m,
-        Err(e) => return CheckResult::fail(
-            "smoke",
-            format!("wasm Module::from_file failed: {e}")),
+        Ok(m) => m,
+        Err(e) => return CheckResult::fail("smoke", format!("wasm Module::from_file failed: {e}")),
     };
     for pass in 0..2 {
         let mut store: Store<()> = Store::new(&engine, ());
@@ -68,12 +69,14 @@ fn reload_wasm(path: &std::path::Path) -> CheckResult {
         if let Err(e) = super::abi::stub_wasm_imports(&mut linker) {
             return CheckResult::fail(
                 "smoke",
-                format!("wasm stub setup failed on pass {pass}: {e}"));
+                format!("wasm stub setup failed on pass {pass}: {e}"),
+            );
         }
         if let Err(e) = linker.instantiate(&mut store, &module) {
             return CheckResult::fail(
                 "smoke",
-                format!("wasm reinstantiate pass {pass} failed: {e}"));
+                format!("wasm reinstantiate pass {pass} failed: {e}"),
+            );
         }
     }
     CheckResult::pass("smoke")

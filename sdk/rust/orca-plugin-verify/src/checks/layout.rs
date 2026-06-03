@@ -13,17 +13,15 @@ use crate::report::CheckResult;
 
 #[derive(Debug, Clone)]
 pub struct LayoutInfo {
-    pub root:           PathBuf,
-    pub manifest_path:  PathBuf,
-    pub schema_path:    Option<PathBuf>,
-    pub native_binary:  Option<PathBuf>,
-    pub wasm_binary:    Option<PathBuf>,
-    pub webview_index:  Option<PathBuf>,
+    pub manifest_path: PathBuf,
+    pub schema_path: Option<PathBuf>,
+    pub native_binary: Option<PathBuf>,
+    pub wasm_binary: Option<PathBuf>,
 }
 
 pub struct Outcome {
     pub result: CheckResult,
-    pub info:   Option<LayoutInfo>,
+    pub info: Option<LayoutInfo>,
 }
 
 pub fn check(root: &Path) -> Outcome {
@@ -35,8 +33,8 @@ pub fn check(root: &Path) -> Outcome {
         return Outcome {
             result: CheckResult::fail(
                 "layout",
-                format!("no manifest.json (or plugin.json) at {}",
-                    root.display())),
+                format!("no manifest.json (or plugin.json) at {}", root.display()),
+            ),
             info: None,
         };
     };
@@ -48,18 +46,13 @@ pub fn check(root: &Path) -> Outcome {
     // contain all three); the ABI check picks the one matching the verifier
     // host platform.
     let native_binary = find_native_binary(root);
-    let wasm_binary   = find_one(root, &["index.wasm"])
-        .or_else(|| find_with_ext(root, "wasm"));
-    let webview_index = root.join("ui").join("index.html");
-    let webview_index = if webview_index.exists() { Some(webview_index) } else { None };
+    let wasm_binary = find_one(root, &["index.wasm"]).or_else(|| find_with_ext(root, "wasm"));
 
     let info = LayoutInfo {
-        root: root.to_path_buf(),
         manifest_path,
         schema_path,
         native_binary,
         wasm_binary,
-        webview_index,
     };
 
     // It's OK to have none of the three (a `kind=data` profile pack is just a
@@ -67,14 +60,16 @@ pub fn check(root: &Path) -> Outcome {
     // check is what enforces a binary exists for native/wasm/hybrid kinds.
     Outcome {
         result: CheckResult::pass("layout"),
-        info:   Some(info),
+        info: Some(info),
     }
 }
 
 fn find_one(root: &Path, names: &[&str]) -> Option<PathBuf> {
     for n in names {
         let p = root.join(n);
-        if p.exists() { return Some(p); }
+        if p.exists() {
+            return Some(p);
+        }
     }
     None
 }
